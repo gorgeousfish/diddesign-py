@@ -1,0 +1,40 @@
+# Tests
+tests/
+
+# Example images
+*.png
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Egg info
+*.egg-info/
+*.egg
+
+# Pytest cache
+.pytest_cache/
+
+# Benchmarks
+.benchmarks/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Distribution
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
