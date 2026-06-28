@@ -58,6 +58,7 @@ __all__ = [
     "DidCheckTrendRow",
     "DidEstimateRow",
     "DidGmmRow",
+    "DidGmmAuditRow",
     "DidResult",
     "DIDResult",
     "DidWeightRow",

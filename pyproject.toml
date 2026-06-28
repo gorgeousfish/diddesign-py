@@ -36,9 +36,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gorgeousfish/diddesign"
-Issues = "https://github.com/gorgeousfish/diddesign/issues"
-Source = "https://github.com/gorgeousfish/diddesign"
+Homepage = "https://github.com/gorgeousfish/did-design"
+Issues = "https://github.com/gorgeousfish/did-design/issues"
+Source = "https://github.com/gorgeousfish/did-design"
 
 [project.optional-dependencies]
 docs = [

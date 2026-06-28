@@ -461,6 +461,7 @@ did(data, *, formula=None, outcome=None, treatment=None, time,
 | `n_cores` | int \| None | `None` | Number of cores (default: all available) |
 | `parallel_backend` | str | `"thread"` | `"thread"` or `"process"` backend for parallel bootstrap |
 | `worker_timeout` | float \| None | `None` | Per-worker timeout in seconds (process backend only) |
+| `progress_callback` | Callable[[int, int], None] \| None | `None` | Callback invoked as `cb(done, total)` during parallel bootstrap |
 | `verbose` | int | `1` | Verbosity: 0 = quiet, 1 = default warnings, 2 = progress |
 | `kmax` | int | `2` | Maximum DID order: 2 = Double DID, ≥ 3 = K-DID |
 | `jtest` | bool | `False` | Apply J-test overidentification moment selection for K-DID |
@@ -588,6 +589,34 @@ Diagnostic result object returned by `did_check()`.
 | `DidCheckDiagnosticRow` | lag, estimate, std_error, ... | Placebo diagnostics |
 | `DidCheckTrendRow` | time, treated_mean, control_mean, ... | Trend comparison |
 | `DidCheckPatternRow` | lead, lag, estimate, ... | SA pattern diagnostics |
+
+### Errors and Warnings
+
+`diddesign` provides a structured error code system aligned with the Stata
+implementation (E001–E020 / W001–W010):
+
+| Class | Base | Purpose |
+|-------|------|---------|
+| `DidValueError` | ValueError | Parameter or data validation failure |
+| `DidRuntimeError` | RuntimeError | Computation failure (singular matrix, bootstrap) |
+| `DidDataError` | ValueError | Legacy alias for data contract errors |
+| `DidWarning` | UserWarning | Structured diagnostic warnings |
+
+Each exception carries a machine-readable `code` (e.g., `ErrorCode.E012`) and
+a `context` dictionary with diagnostic quantities:
+
+```python
+from diddesign.errors import DidValueError, ErrorCode
+
+try:
+    result = did(data=df, outcome="y", treatment="bad_col", time="t", unit_id="id")
+except DidValueError as e:
+    print(e.code)     # ErrorCode.E001
+    print(e.context)  # {'field_name': 'treatment', ...}
+```
+
+Use `ErrorCode` and `WarningCode` enums for programmatic error handling in
+automated pipelines.
 
 ## Methodology
 
