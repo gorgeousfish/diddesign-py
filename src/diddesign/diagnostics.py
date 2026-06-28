@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from operator import index as _index
@@ -12,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from .core.data_contracts import normalize_design_data
+from .core.encoding import auto_encode_string_columns
 from .core.validation import require_column
 from .formula import (
     DidFormulaSpec,
@@ -1786,9 +1788,76 @@ def did_check(
     thres: int | None = None,
     n_boot: int = 30,
     random_seed: int | None = None,
+    verbose: int = 1,
     option: Mapping[str, Any] | None = None,
     is_panel: bool | None = None,
 ) -> DidCheckResult:
+    # Validate verbose parameter
+    if not isinstance(verbose, int) or verbose < 0 or verbose > 2:
+        verbose = 1  # fallback to default
+
+    # verbose=0: suppress DidWarning via context manager
+    from .errors import DidWarning
+    _warn_ctx = None
+    if verbose == 0:
+        _warn_ctx = warnings.catch_warnings()
+        _warn_ctx.__enter__()
+        warnings.filterwarnings("ignore", category=DidWarning)
+
+    try:
+        return _did_check_inner(
+            diagnostic_rows=diagnostic_rows,
+            trends_rows=trends_rows,
+            pattern_rows=pattern_rows,
+            metadata=metadata,
+            data=data,
+            formula=formula,
+            outcome=outcome,
+            treatment=treatment,
+            time=time,
+            unit_id=unit_id,
+            post=post,
+            design=design,
+            covariates=covariates,
+            data_type=data_type,
+            id_cluster=id_cluster,
+            lag=lag,
+            thres=thres,
+            n_boot=n_boot,
+            random_seed=random_seed,
+            option=option,
+            is_panel=is_panel,
+        )
+    finally:
+        if _warn_ctx is not None:
+            _warn_ctx.__exit__(None, None, None)
+
+
+def _did_check_inner(
+    *,
+    diagnostic_rows: list[DidCheckDiagnosticRow] | tuple[DidCheckDiagnosticRow, ...] | None = None,
+    trends_rows: list[DidCheckTrendRow] | tuple[DidCheckTrendRow, ...] | None = None,
+    pattern_rows: list[DidCheckPatternRow] | tuple[DidCheckPatternRow, ...] | None = None,
+    metadata: dict[str, Any] | None = None,
+    data: Iterable[Mapping[str, Any]] | pd.DataFrame | None = None,
+    formula: str | DidFormulaSpec | None = None,
+    outcome: str | None = None,
+    treatment: str | None = None,
+    time: str | None = None,
+    unit_id: str | None = None,
+    post: str | None = None,
+    design: str = "did",
+    covariates: Sequence[str] | None = None,
+    data_type: str = "panel",
+    id_cluster: str | None = None,
+    lag: int | Sequence[int] = 1,
+    thres: int | None = None,
+    n_boot: int = 30,
+    random_seed: int | None = None,
+    option: Mapping[str, Any] | None = None,
+    is_panel: bool | None = None,
+) -> DidCheckResult:
+    """Inner implementation of did_check() without verbose wrapper."""
     if metadata is not None and not isinstance(metadata, Mapping):
         raise TypeError("metadata must be a mapping.")
     data_type, lag, thres, n_boot, id_cluster = _normalize_runtime_surface(
@@ -1821,6 +1890,13 @@ def did_check(
         time = _validate_required_column_name(time, field_name="time")
         unit_id = _validate_optional_column_name(unit_id, field_name="unit_id")
         post = _validate_optional_column_name(post, field_name="post")
+        # Auto-encode string columns before validation
+        if isinstance(data, pd.DataFrame):
+            data, _encoding_metadata = auto_encode_string_columns(
+                data,
+                unit_id=unit_id,
+                id_cluster=id_cluster,
+            )
         covariate_specs = _parse_covariates(covariates)
         _validate_covariates_disjoint_from_roles(
             covariate_specs,

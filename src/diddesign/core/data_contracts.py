@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..errors import ErrorCode, DidValueError
 from .validation import (
     DataContractError,
     DidDataError,
@@ -26,8 +27,10 @@ def _require_distinct_role_columns(**roles: str | None) -> None:
             continue
         previous_role = seen.get(column)
         if previous_role is not None:
-            raise DataContractError(
-                f"{role} column must be distinct from {previous_role} column."
+            raise DidValueError(
+                ErrorCode.E001,
+                f"{role} column must be distinct from {previous_role} column.",
+                context={"role": role, "previous_role": previous_role, "column": column},
             )
         seen[column] = role
 
@@ -98,7 +101,11 @@ def normalize_design_data(
     cluster_default: str | None = None
     if data_type == "panel":
         if unit_id is None:
-            raise DataContractError("unit_id is required for panel data.")
+            raise DidValueError(
+                ErrorCode.E001,
+                "unit_id is required for panel data.",
+                context={"field_name": "unit_id", "data_type": data_type},
+            )
         require_column(materialized, unit_id, field_name="unit_id")
         cluster_default = unit_id
         validation_trace.append("required:unit_id")
@@ -130,7 +137,11 @@ def normalize_design_data(
         branch = f"{design}-panel"
     else:
         if post is None:
-            raise DataContractError("post is required for repeated cross-section data.")
+            raise DidValueError(
+                ErrorCode.E001,
+                "post is required for repeated cross-section data.",
+                context={"field_name": "post", "data_type": data_type},
+            )
         require_column(materialized, post, field_name="post")
         require_binary_indicator(materialized, column=post, label="post")
         validation_trace.extend(("required:post", "binary:post"))

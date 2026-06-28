@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 import os
 import warnings
-from collections.abc import Iterable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from operator import index as _index
 from statistics import NormalDist
@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from ..core.data_contracts import normalize_design_data
+from ..core.encoding import auto_encode_string_columns
 from ..core.validation import require_column
 from ..errors import (
     DidValueError,
@@ -144,7 +145,7 @@ def _parse_covariates(covariates: Sequence[str] | None) -> tuple[_AnyCovarSpec, 
     return tuple(specs)
 
 
-_OPTION_IGNORED_KEYS = frozenset({"parallel"})
+_OPTION_IGNORED_KEYS = frozenset({"parallel", "parallel_backend", "worker_timeout", "progress_callback"})
 
 
 def _resolve_option_value(
@@ -371,8 +372,8 @@ def _validate_random_seed(random_seed: Any) -> int | None:
     return int(seed)
 
 
-def _validate_parallel(parallel: bool, n_cores: int | None) -> tuple[bool, int | None]:
-    """Validate parallel and n_cores parameters."""
+def _validate_parallel(parallel: bool, n_cores: int | None, parallel_backend: str = "thread") -> tuple[bool, int | None, str]:
+    """Validate parallel, n_cores, and parallel_backend parameters."""
     if not isinstance(parallel, bool):
         raise TypeError("parallel must be a boolean.")
     if n_cores is not None:
@@ -382,7 +383,14 @@ def _validate_parallel(parallel: bool, n_cores: int | None) -> tuple[bool, int |
                 "n_cores must be a positive integer.",
                 context={"n_cores": n_cores},
             )
-    return parallel, n_cores
+    _VALID_BACKENDS = {"thread", "process"}
+    if parallel_backend not in _VALID_BACKENDS:
+        raise DidValueError(
+            ErrorCode.E002,
+            f"parallel_backend must be one of {sorted(_VALID_BACKENDS)}, got '{parallel_backend}'.",
+            context={"parallel_backend": parallel_backend},
+        )
+    return parallel, n_cores, parallel_backend
 
 
 def _distribute_iterations(n_boot: int, n_workers: int) -> list[int]:
@@ -2283,6 +2291,9 @@ def _compute_sa_bootstrap_draws_k_parallel(
     cluster_mode: str,
     kmax: int,
     n_cores: int | None,
+    parallel_backend: str = "thread",
+    worker_timeout: float | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[DidBootstrapDrawK, ...]:
     """Parallel version of _compute_sa_bootstrap_draws_k."""
     effective_cores = min(n_cores or max(os.cpu_count() - 1, 1), n_boot)
@@ -2312,15 +2323,22 @@ def _compute_sa_bootstrap_draws_k_parallel(
         )
         return list(draws_chunk)
 
+    ExecutorClass = ProcessPoolExecutor if parallel_backend == "process" else ThreadPoolExecutor
+
     try:
         all_draws: list[DidBootstrapDrawK] = []
-        with ThreadPoolExecutor(max_workers=effective_cores) as executor:
+        with ExecutorClass(max_workers=effective_cores) as executor:
             futures = [
                 executor.submit(worker_task, chunk_size, seed)
                 for chunk_size, seed in zip(chunk_sizes, worker_seeds)
             ]
+            completed_count = 0
+            total_chunks = len(futures)
             for future in futures:
-                all_draws.extend(future.result())
+                all_draws.extend(future.result(timeout=worker_timeout))
+                completed_count += 1
+                if progress_callback is not None:
+                    progress_callback(completed_count, total_chunks)
 
         # Renumber iterations
         renumbered: list[DidBootstrapDrawK] = []
@@ -2339,11 +2357,11 @@ def _compute_sa_bootstrap_draws_k_parallel(
                         components=src.components,
                     ))
         return tuple(renumbered)
-    except Exception as exc:
+    except (FutureTimeoutError, Exception) as exc:
         did_warn(
             WarningCode.W004,
             f"Parallel SA K-DID bootstrap failed ({exc}); falling back to sequential.",
-            context={"error": str(exc)},
+            context={"error": str(exc), "backend": parallel_backend},
             stacklevel=2,
         )
         return _compute_sa_bootstrap_draws_k(
@@ -2528,6 +2546,28 @@ def _compute_bootstrap_draws(
     return tuple(draws)
 
 
+
+# ---------------------------------------------------------------------------
+# Module-level worker functions for ProcessPoolExecutor (must be picklable)
+# ---------------------------------------------------------------------------
+
+
+def _bootstrap_worker_task(
+    frame: "pd.DataFrame",
+    leads: tuple[int, ...],
+    covariates: tuple,
+    chunk_size: int,
+    seed: int | None,
+) -> "list[DidBootstrapDraw]":
+    """Module-level worker for ProcessPoolExecutor bootstrap draws."""
+    draws_chunk = _compute_bootstrap_draws(
+        frame, leads=leads, covariates=covariates,
+        n_boot=chunk_size, random_seed=seed,
+    )
+    return list(draws_chunk)
+
+
+
 def _compute_bootstrap_draws_parallel(
     frame: pd.DataFrame,
     *,
@@ -2536,8 +2576,21 @@ def _compute_bootstrap_draws_parallel(
     n_boot: int,
     random_seed: int | None,
     n_cores: int | None,
+    parallel_backend: str = "thread",
+    worker_timeout: float | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[DidBootstrapDraw, ...]:
-    """Parallel version of _compute_bootstrap_draws using ThreadPoolExecutor."""
+    """Parallel version of _compute_bootstrap_draws.
+
+    Parameters
+    ----------
+    parallel_backend : str
+        'thread' for ThreadPoolExecutor, 'process' for ProcessPoolExecutor.
+    worker_timeout : float or None
+        Timeout in seconds for each worker future. None means no timeout.
+    progress_callback : callable or None
+        Called as progress_callback(completed, total) after each chunk completes.
+    """
     effective_cores = min(n_cores or max(os.cpu_count() - 1, 1), n_boot)
     if effective_cores < 2:
         return _compute_bootstrap_draws(
@@ -2557,22 +2610,38 @@ def _compute_bootstrap_draws_parallel(
     else:
         worker_seeds = [None] * effective_cores
 
-    def worker_task(chunk_size: int, seed: int | None) -> list[DidBootstrapDraw]:
+    def _thread_worker(chunk_size: int, seed: int | None) -> list[DidBootstrapDraw]:
         draws_chunk = _compute_bootstrap_draws(
             frame, leads=leads, covariates=covariates,
             n_boot=chunk_size, random_seed=seed,
         )
         return list(draws_chunk)
 
+    ExecutorClass = ProcessPoolExecutor if parallel_backend == "process" else ThreadPoolExecutor
+
     try:
         all_draws: list[DidBootstrapDraw] = []
-        with ThreadPoolExecutor(max_workers=effective_cores) as executor:
-            futures = [
-                executor.submit(worker_task, chunk_size, seed)
-                for chunk_size, seed in zip(chunk_sizes, worker_seeds)
-            ]
+        with ExecutorClass(max_workers=effective_cores) as executor:
+            if parallel_backend == "process":
+                futures = [
+                    executor.submit(
+                        _bootstrap_worker_task, frame, leads, covariates,
+                        chunk_size, seed,
+                    )
+                    for chunk_size, seed in zip(chunk_sizes, worker_seeds)
+                ]
+            else:
+                futures = [
+                    executor.submit(_thread_worker, chunk_size, seed)
+                    for chunk_size, seed in zip(chunk_sizes, worker_seeds)
+                ]
+            completed_count = 0
+            total_chunks = len(futures)
             for future in futures:
-                all_draws.extend(future.result())
+                all_draws.extend(future.result(timeout=worker_timeout))
+                completed_count += 1
+                if progress_callback is not None:
+                    progress_callback(completed_count, total_chunks)
 
         # Renumber iterations to be consecutive 1..n_boot
         renumbered: list[DidBootstrapDraw] = []
@@ -2592,11 +2661,11 @@ def _compute_bootstrap_draws_parallel(
                         sdid=src.sdid,
                     ))
         return tuple(renumbered)
-    except Exception as exc:
+    except (FutureTimeoutError, Exception) as exc:
         did_warn(
             WarningCode.W004,
             f"Parallel bootstrap failed ({exc}); falling back to sequential.",
-            context={"error": str(exc)},
+            context={"error": str(exc), "backend": parallel_backend},
             stacklevel=2,
         )
         return _compute_bootstrap_draws(
@@ -2615,8 +2684,11 @@ def _compute_sa_bootstrap_draws_parallel(
     thres: int,
     cluster_mode: str,
     n_cores: int | None,
+    parallel_backend: str = "thread",
+    worker_timeout: float | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[DidBootstrapDraw, ...]:
-    """Parallel version of _compute_sa_bootstrap_draws using ThreadPoolExecutor."""
+    """Parallel version of _compute_sa_bootstrap_draws."""
     effective_cores = min(n_cores or max(os.cpu_count() - 1, 1), n_boot)
     if effective_cores < 2:
         return _compute_sa_bootstrap_draws(
@@ -2644,15 +2716,22 @@ def _compute_sa_bootstrap_draws_parallel(
         )
         return list(draws_chunk)
 
+    ExecutorClass = ProcessPoolExecutor if parallel_backend == "process" else ThreadPoolExecutor
+
     try:
         all_draws: list[DidBootstrapDraw] = []
-        with ThreadPoolExecutor(max_workers=effective_cores) as executor:
+        with ExecutorClass(max_workers=effective_cores) as executor:
             futures = [
                 executor.submit(worker_task, chunk_size, seed)
                 for chunk_size, seed in zip(chunk_sizes, worker_seeds)
             ]
+            completed_count = 0
+            total_chunks = len(futures)
             for future in futures:
-                all_draws.extend(future.result())
+                all_draws.extend(future.result(timeout=worker_timeout))
+                completed_count += 1
+                if progress_callback is not None:
+                    progress_callback(completed_count, total_chunks)
 
         # Renumber iterations
         renumbered: list[DidBootstrapDraw] = []
@@ -2672,11 +2751,11 @@ def _compute_sa_bootstrap_draws_parallel(
                         sdid=src.sdid,
                     ))
         return tuple(renumbered)
-    except Exception as exc:
+    except (FutureTimeoutError, Exception) as exc:
         did_warn(
             WarningCode.W004,
             f"Parallel SA bootstrap failed ({exc}); falling back to sequential.",
-            context={"error": str(exc)},
+            context={"error": str(exc), "backend": parallel_backend},
             stacklevel=2,
         )
         return _compute_sa_bootstrap_draws(
@@ -2695,8 +2774,11 @@ def _compute_k_bootstrap_draws_parallel(
     n_boot: int,
     random_seed: int | None,
     n_cores: int | None,
+    parallel_backend: str = "thread",
+    worker_timeout: float | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[DidBootstrapDrawK, ...]:
-    """Parallel version of _compute_k_bootstrap_draws using ThreadPoolExecutor."""
+    """Parallel version of _compute_k_bootstrap_draws."""
     effective_cores = min(n_cores or max(os.cpu_count() - 1, 1), n_boot)
     if effective_cores < 2:
         return _compute_k_bootstrap_draws(
@@ -2722,15 +2804,22 @@ def _compute_k_bootstrap_draws_parallel(
         )
         return list(draws_chunk)
 
+    ExecutorClass = ProcessPoolExecutor if parallel_backend == "process" else ThreadPoolExecutor
+
     try:
         all_draws: list[DidBootstrapDrawK] = []
-        with ThreadPoolExecutor(max_workers=effective_cores) as executor:
+        with ExecutorClass(max_workers=effective_cores) as executor:
             futures = [
                 executor.submit(worker_task, chunk_size, seed)
                 for chunk_size, seed in zip(chunk_sizes, worker_seeds)
             ]
+            completed_count = 0
+            total_chunks = len(futures)
             for future in futures:
-                all_draws.extend(future.result())
+                all_draws.extend(future.result(timeout=worker_timeout))
+                completed_count += 1
+                if progress_callback is not None:
+                    progress_callback(completed_count, total_chunks)
 
         # Renumber iterations
         renumbered: list[DidBootstrapDrawK] = []
@@ -2749,11 +2838,11 @@ def _compute_k_bootstrap_draws_parallel(
                         components=src.components,
                     ))
         return tuple(renumbered)
-    except Exception as exc:
+    except (FutureTimeoutError, Exception) as exc:
         did_warn(
             WarningCode.W004,
             f"Parallel K-DID bootstrap failed ({exc}); falling back to sequential.",
-            context={"error": str(exc)},
+            context={"error": str(exc), "backend": parallel_backend},
             stacklevel=2,
         )
         return _compute_k_bootstrap_draws(
@@ -3103,6 +3192,10 @@ def did(
     random_seed: int | None = None,
     parallel: bool = False,
     n_cores: int | None = None,
+    parallel_backend: str = "thread",
+    worker_timeout: float | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    verbose: int = 1,
     option: Mapping[str, Any] | None = None,
     is_panel: bool | None = None,
     kmax: int = 2,
@@ -3154,6 +3247,11 @@ def did(
         Legacy option mapping for backward compatibility.
     is_panel : bool, optional
         Deprecated alias for data_type='panel'.
+    verbose : int, default 1
+        Output verbosity level.
+        0 = suppress all DidWarning messages (quiet mode).
+        1 = default behavior (warnings emitted normally).
+        2 = progress display during bootstrap and completion summary.
     kmax : int, default 2
         Maximum K-DID order. Must satisfy 1 <= kmax <= 8.
         Values greater than 8 raise ValueError to avoid numerical instability
@@ -3166,6 +3264,122 @@ def did(
     DidResult
         Immutable result object with estimates, bootstrap draws, and metadata.
     """
+    import sys as _sys
+    import time as _time
+
+    # Validate verbose parameter
+    if not isinstance(verbose, int) or verbose < 0 or verbose > 2:
+        verbose = 1  # fallback to default
+
+    # verbose=0: suppress DidWarning via context manager
+    _warn_ctx = None
+    if verbose == 0:
+        _warn_ctx = warnings.catch_warnings()
+        _warn_ctx.__enter__()
+        warnings.filterwarnings("ignore", category=DidWarning)
+
+    # verbose>=2: create progress callback (only if user did not supply one)
+    if verbose >= 2 and progress_callback is None:
+        _boot_start_time = _time.time()
+
+        def _progress_callback(completed: int, total: int) -> None:
+            elapsed = _time.time() - _boot_start_time
+            rate = completed / elapsed if elapsed > 0 else 0
+            _sys.stderr.write(
+                f"\rBootstrap: {completed}/{total} iterations "
+                f"[{elapsed:.1f}s, {rate:.1f} it/s]"
+            )
+            if completed == total:
+                _sys.stderr.write("\n")
+            _sys.stderr.flush()
+
+        progress_callback = _progress_callback
+
+    try:
+        result = _did_inner(
+            data=data,
+            formula=formula,
+            outcome=outcome,
+            treatment=treatment,
+            time=time,
+            unit_id=unit_id,
+            post=post,
+            design=design,
+            data_type=data_type,
+            covariates=covariates,
+            lead=lead,
+            thres=thres,
+            n_boot=n_boot,
+            se_boot=se_boot,
+            level=level,
+            id_cluster=id_cluster,
+            random_seed=random_seed,
+            parallel=parallel,
+            n_cores=n_cores,
+            parallel_backend=parallel_backend,
+            worker_timeout=worker_timeout,
+            progress_callback=progress_callback,
+            option=option,
+            is_panel=is_panel,
+            kmax=kmax,
+            jtest=jtest,
+        )
+    finally:
+        if _warn_ctx is not None:
+            _warn_ctx.__exit__(None, None, None)
+
+    # verbose>=2: print completion summary
+    if verbose >= 2:
+        n_realized = result.metadata.get("n_boot_realized", n_boot)
+        validity_pct = (n_realized / n_boot) * 100 if n_boot > 0 else 100.0
+        _sys.stderr.write(
+            f"Bootstrap complete: valid {n_realized}/{n_boot} ({validity_pct:.1f}%)\n"
+        )
+        # Print GMM weight summary if available
+        _wbl = result.metadata.get("weights_by_lead")
+        if _wbl:
+            for lead_val, weights in _wbl.items():
+                w_did = weights.get("w_did")
+                w_sdid = weights.get("w_sdid")
+                if w_did is not None and w_sdid is not None:
+                    _sys.stderr.write(
+                        f"Lead={lead_val}: w_DID={w_did:.4f}, w_sDID={w_sdid:.4f}\n"
+                    )
+        _sys.stderr.flush()
+
+    return result
+
+
+def _did_inner(
+    data: Iterable[Mapping[str, Any]] | pd.DataFrame,
+    *,
+    formula: str | DidFormulaSpec | None = None,
+    outcome: str | None = None,
+    treatment: str | None = None,
+    time: str,
+    unit_id: str | None = None,
+    post: str | None = None,
+    design: str = "did",
+    data_type: str = "panel",
+    covariates: Sequence[str] | None = None,
+    lead: int | Sequence[int] = 0,
+    thres: int | None = None,
+    n_boot: int = 30,
+    se_boot: bool | None = None,
+    level: int = 95,
+    id_cluster: str | None = None,
+    random_seed: int | None = None,
+    parallel: bool = False,
+    n_cores: int | None = None,
+    parallel_backend: str = "thread",
+    worker_timeout: float | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    option: Mapping[str, Any] | None = None,
+    is_panel: bool | None = None,
+    kmax: int = 2,
+    jtest: bool = False,
+) -> DidResult:
+    """Inner implementation of did() without verbose wrapper."""
     data_type, lead, thres, n_boot, se_boot, id_cluster = _normalize_runtime_surface(
         option=option,
         data_type=data_type,
@@ -3186,7 +3400,7 @@ def did(
     requested_leads = _validate_requested_leads(lead)
     validated_n_boot = _validate_n_boot(n_boot)
     validated_random_seed = _validate_random_seed(random_seed)
-    validated_parallel, validated_n_cores = _validate_parallel(parallel, n_cores)
+    validated_parallel, validated_n_cores, validated_backend = _validate_parallel(parallel, n_cores, parallel_backend)
     validated_se_boot = _validate_se_boot(se_boot, design=design)
     validated_level = _validate_level(level)
     validated_thres = _validate_thres(thres, design=design)
@@ -3221,6 +3435,16 @@ def did(
         time=time,
         post=post,
     )
+    # Auto-encode string columns before validation
+    # Note: time is NOT encoded here because the existing pipeline
+    # (resolve_time_order_metadata) handles string time with proper metadata.
+    _encoding_metadata: dict = {}
+    if isinstance(data, pd.DataFrame):
+        data, _encoding_metadata = auto_encode_string_columns(
+            data,
+            unit_id=unit_id,
+            id_cluster=id_cluster,
+        )
     rows = _materialize_input_rows(data)
     if design == "sa":
         if unit_id is None:
@@ -3238,6 +3462,8 @@ def did(
             covariates=covariate_specs,
             id_cluster=id_cluster,
         )
+        if _encoding_metadata:
+            metadata["encoding_map"] = _encoding_metadata
 
         validated_kmax = _validate_kmax(kmax)
 
@@ -3270,6 +3496,9 @@ def did(
                 cluster_mode=str(metadata["cluster_mode"]),
                 kmax=effective_kmax,
                 n_cores=validated_n_cores,
+            parallel_backend=validated_backend,
+            worker_timeout=worker_timeout,
+            progress_callback=progress_callback,
             ) if validated_parallel and validated_n_boot > 1 else _compute_sa_bootstrap_draws_k(
                 frame,
                 leads=k_identified_leads,
@@ -3404,6 +3633,9 @@ def did(
             thres=validated_thres,
             cluster_mode=str(metadata["cluster_mode"]),
             n_cores=validated_n_cores,
+        parallel_backend=validated_backend,
+        worker_timeout=worker_timeout,
+        progress_callback=progress_callback,
         ) if validated_parallel and validated_n_boot > 1 else _compute_sa_bootstrap_draws(
             frame,
             leads=identified_leads,
@@ -3518,6 +3750,8 @@ def did(
         data_type=data_type,
         id_cluster=id_cluster,
     )
+    if _encoding_metadata:
+        metadata["encoding_map"] = _encoding_metadata
 
     validated_kmax = _validate_kmax(kmax)
 
@@ -3543,6 +3777,9 @@ def did(
             n_boot=validated_n_boot,
             random_seed=validated_random_seed,
             n_cores=validated_n_cores,
+        parallel_backend=validated_backend,
+        worker_timeout=worker_timeout,
+        progress_callback=progress_callback,
         ) if validated_parallel and validated_n_boot > 1 else _compute_k_bootstrap_draws(
             frame,
             leads=k_identified_leads,
@@ -3659,6 +3896,9 @@ def did(
         n_boot=validated_n_boot,
         random_seed=validated_random_seed,
         n_cores=validated_n_cores,
+    parallel_backend=validated_backend,
+    worker_timeout=worker_timeout,
+    progress_callback=progress_callback,
     ) if validated_parallel and validated_n_boot > 1 else _compute_bootstrap_draws(
         frame,
         leads=identified_leads,
@@ -3761,3 +4001,4 @@ def did(
 
 
 __all__ = ["did"]
+

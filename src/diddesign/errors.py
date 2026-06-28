@@ -31,6 +31,16 @@ class ErrorCode(IntEnum):
     E009 = 9   # Bootstrap failure
     E010 = 10  # kmax out of range
     E011 = 11  # Insufficient moment conditions
+    # Validation errors
+    E012 = 12  # Treatment not binary (not 0/1)
+    E013 = 13  # Treatment not absorbing (irreversible)
+    E014 = 14  # Standard DID requires common treatment adoption time
+    E015 = 15  # SA design requires >= 3 time periods
+    E016 = 16  # RCS post indicator inconsistent with time
+    E017 = 17  # Time column contains non-finite values
+    E018 = 18  # RCS requires cluster variable
+    E019 = 19  # Ambiguous string time ordering
+    E020 = 20  # Invalid design/data_type parameter
 
 
 class WarningCode(IntEnum):
@@ -51,6 +61,14 @@ class WarningCode(IntEnum):
 # ---------------------------------------------------------------------------
 # Structured Exceptions
 # ---------------------------------------------------------------------------
+
+
+class DidDataError(ValueError):
+    """Raised when input data cannot satisfy the DID data requirements.
+
+    This is the backward-compatible base class.  ``DataContractError`` is an
+    alias for this class.
+    """
 
 
 class DidError(Exception):
@@ -75,11 +93,12 @@ class DidError(Exception):
         super().__init__(self.detailed_message)
 
 
-class DidValueError(DidError, ValueError):
+class DidValueError(DidError, DidDataError):
     """Structured DIDdesign error for parameter / data validation failures.
 
-    Inherits from both :class:`DidError` and :class:`ValueError` so that
-    existing ``except ValueError`` handlers continue to catch these errors.
+    Inherits from both :class:`DidError` and :class:`DidDataError` so that
+    existing ``except ValueError`` and ``except DataContractError`` handlers
+    continue to catch these errors.
     """
 
 

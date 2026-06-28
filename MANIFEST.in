@@ -1,5 +1,6 @@
 include README.md
 include LICENSE
+include CHANGELOG.md
 include pyproject.toml
 graft src
 graft examples

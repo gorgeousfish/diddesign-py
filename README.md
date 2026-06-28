@@ -40,6 +40,16 @@ identification assumptions than either component alone.
 - Covariate adjustment with `factor()` categorical encoding and `x1:x2`
   interaction terms.
 
+**When to use `diddesign`:** Use this package when the analysis targets the
+Egami-Yamauchi multiple-pre-treatment DID design and the reporting task needs
+access to component estimates, GMM weights, diagnostics, bootstrap draws, and
+plotting rows after fitting. For adjacent DID tasks, other Python packages may
+be the better first choice: PyFixest for fixed-effects DID and event-study
+regression, `differences` for cohort-time ATT(g,t) estimation, DoubleML for
+DID with machine-learning nuisance estimation, CausalPy for broader
+quasi-experimental Bayesian/OLS workflows, `sdid` for synthetic DID, and
+`diff-diff` for a broader scikit-learn-style DID toolkit.
+
 ## Key Concepts
 
 ### Identification Assumptions
@@ -69,6 +79,19 @@ identification assumptions than either component alone.
 | Multiple treatment timing groups | Use staggered adoption (`design="sa"`) |
 | Suspect non-parallel pre-trends | Run `did_check()` first |
 
+### Equivalence Confidence Intervals
+
+Traditional hypothesis testing interprets non-rejection as evidence for parallel
+trends, but this conflates "no evidence against" with "evidence for." The
+equivalence approach reverses the null hypothesis: rejection of the null (that
+trends differ by more than some threshold) provides positive evidence for
+approximate parallel trends.
+
+The 95% standardized equivalence CI is reported in units of baseline control
+group standard deviations via `did_check()`. As in the original paper and R
+package, there is no universal EqCI cutoff: researchers should use substantive
+domain knowledge to decide whether the reported interval is narrow enough.
+
 ## Installation
 
 Install from a local checkout (editable mode):
@@ -91,23 +114,60 @@ pip install "diddesign[plot]"
 
 **Requirements:** Python ≥ 3.12, NumPy ≥ 1.26, pandas ≥ 2.2.
 
-## When To Use `diddesign`
+## Recommended Workflow
 
-Use `diddesign` when the analysis targets the Egami-Yamauchi
-multiple-pre-treatment DID design and the reporting task needs access to the
-component estimates, GMM weights, diagnostics, bootstrap draws, and plotting rows
-after fitting.
+The Double DID follows a two-step workflow:
 
-For adjacent DID tasks, other Python packages may be the better first choice:
-PyFixest for fixed-effects DID and event-study regression workflows,
-`differences` for cohort-time ATT(g,t) estimation, DoubleML for DID with
-machine-learning nuisance estimation, CausalPy for broader quasi-experimental
-Bayesian/OLS workflows, ModernDiD for broad modern-DID estimator coverage,
-`lwdid` for Lee-Wooldridge rolling-transformation DID, `sdid` for synthetic
-Difference-in-Differences, and `diff-diff` for a broader scikit-learn-style DID
-toolkit. `diddesign` is narrower: it focuses on returning inspectable Python
-objects for multiple-pre-treatment Double DID and staggered adoption
-calculations.
+### Step 1: Assess Assumptions with `did_check()`
+
+```python
+from diddesign import did_check
+
+check = did_check(data=df, outcome="y", treatment="treat",
+                  time="time", unit_id="unit", lag=(1, 2, 3),
+                  n_boot=50, random_seed=42)
+
+# Inspect placebo estimates and equivalence CIs
+print(check.to_summary_frame())
+```
+
+**Output interpretation:**
+
+| Component | What to Look For |
+|-----------|------------------|
+| Placebo estimates | Values close to zero support extended parallel trends |
+| Std. Error | Smaller standard errors make placebo deviations easier to interpret |
+| Equivalence CI | Narrower intervals = stronger evidence that pre-trends are substantively small |
+
+**Decision guide:**
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Placebo ≈ 0, narrow equivalence CI | Supports extended parallel trends; use Double DID |
+| Placebo ≈ 0, wide equivalence CI | Evidence weak; interpret cautiously |
+| Placebo non-zero, trends same direction | May motivate parallel-trends-in-trends; consider sDID |
+| Trends opposite directions | Neither assumption likely credible |
+
+### Step 2: Estimate Treatment Effects with `did()`
+
+```python
+from diddesign import did, summary
+
+result = did(data=df, outcome="y", treatment="treat",
+             time="time", unit_id="unit", n_boot=200, random_seed=42)
+
+print(summary(result, as_frame=True))
+```
+
+The output reports three estimators:
+
+| Estimator | When to Use |
+|-----------|-------------|
+| Double-DID | Diagnostics support extended parallel trends |
+| DID | Baseline comparison |
+| sDID | Diagnostics suggest linear divergence |
+
+**Interpreting GMM weights**: `w_DID ≈ 1` favors standard DID; `w_sDID ≈ 1` favors sequential DID.
 
 ## Quick Start
 
@@ -374,7 +434,8 @@ did(data, *, formula=None, outcome=None, treatment=None, time,
     unit_id=None, post=None, design="did", data_type="panel",
     covariates=None, lead=0, thres=None, n_boot=30, se_boot=None,
     level=95, id_cluster=None, random_seed=None, parallel=False,
-    n_cores=None, option=None, is_panel=None, kmax=2, jtest=False)
+    n_cores=None, parallel_backend="thread", worker_timeout=None,
+    verbose=1, kmax=2, jtest=False)
 ```
 
 | Parameter | Type | Default | Description |
@@ -398,6 +459,9 @@ did(data, *, formula=None, outcome=None, treatment=None, time,
 | `random_seed` | int \| None | `None` | Seed for reproducibility |
 | `parallel` | bool | `False` | Enable parallel bootstrap computation |
 | `n_cores` | int \| None | `None` | Number of cores (default: all available) |
+| `parallel_backend` | str | `"thread"` | `"thread"` or `"process"` backend for parallel bootstrap |
+| `worker_timeout` | float \| None | `None` | Per-worker timeout in seconds (process backend only) |
+| `verbose` | int | `1` | Verbosity: 0 = quiet, 1 = default warnings, 2 = progress |
 | `kmax` | int | `2` | Maximum DID order: 2 = Double DID, ≥ 3 = K-DID |
 | `jtest` | bool | `False` | Apply J-test overidentification moment selection for K-DID |
 
@@ -411,14 +475,15 @@ Compute pre-treatment diagnostic tests. All parameters are keyword-only.
 did_check(*, data=None, formula=None, outcome=None, treatment=None,
           time=None, unit_id=None, post=None, design="did",
           covariates=None, data_type="panel", id_cluster=None,
-          lag=1, thres=None, n_boot=30, random_seed=None, option=None,
-          is_panel=None)
+          lag=1, thres=None, n_boot=30, random_seed=None,
+          verbose=1)
 ```
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `data` | DataFrame | — | Input data |
 | `lag` | int \| list[int] | `1` | Pre-treatment lag(s) to test |
+| `verbose` | int | `1` | Verbosity: 0 = quiet, 1 = default warnings, 2 = progress |
 | Other parameters | — | — | Same as `did()` (without `lead`, `kmax`, `jtest`, `parallel`) |
 
 **Returns:** `DidCheckResult`
@@ -478,8 +543,26 @@ Immutable result object returned by `did()`.
 | `to_bootstrap_frame()` | DataFrame | Bootstrap draws (iterations × components) |
 | `to_weights_frame()` | DataFrame | GMM weight rows by lead |
 | `to_gmm_frame()` | DataFrame | Full GMM calculation rows (covariances, weight matrix) |
+| `to_k_weights_frame()` | DataFrame | K-dimensional GMM weight rows (K-DID / SA-K-DID) |
 | `to_serialized_result()` | dict | Serializable representation for export |
 | `.metadata` | dict | Design metadata (time order, column roles, etc.) |
+
+**Key metadata fields (`result.metadata`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `design` | str | `"did"` or `"sa"` |
+| `data_type` | str | `"panel"` or `"rcs"` |
+| `n_boot` | int | Requested bootstrap iterations |
+| `n_boot_realized` | int | Successful bootstrap iterations |
+| `random_seed` | int \| None | Seed used for reproducibility |
+| `requested_leads` | tuple | Leads requested by user |
+| `identified_leads` | tuple | Leads with sufficient support |
+| `weights_by_lead` | dict | Per-lead GMM weights {lead: {w_did, w_sdid}} |
+| `covariates` | tuple | Covariate terms used |
+| `encoding_map` | dict | Auto-encoded string column mappings |
+| `kmax` | int | K-DID order used |
+| `jtest` | bool | Whether J-test was applied |
 
 #### `DidCheckResult`
 
@@ -562,15 +645,17 @@ SA-Double-DID estimates. Each lead $\ell$ uses units treated at time $g$ and
 compares their outcome at $g + \ell$ to never-treated units, applying the
 same GMM combination within each lead.
 
-## Reproducing the Paper
+## Authors
 
-To reproduce the article outputs from the repository root, run:
+**Python Implementation:**
 
-```bash
-bash paper/build.sh
-```
+- **Xuanyu Cai**, City University of Macau  
+  Email: xuanyuCAI@outlook.com
 
-Set `PYTHON=/path/to/python` to choose a specific interpreter.
+**Methodology:**
+
+- **Naoki Egami**, Columbia University
+- **Soichiro Yamauchi**, Harvard University
 
 ## Citation
 
@@ -593,6 +678,12 @@ paper:
   *Political Analysis*. DOI: 10.1017/pan.2023.8
 - R package: [DIDdesign](https://github.com/naoki-egami/DIDdesign) (CRAN)
 - Stata package: [diddesign](https://github.com/gorgeousfish/diddesign)
+
+## See Also
+
+- R package by Egami & Yamauchi: [DIDdesign](https://github.com/naoki-egami/DIDdesign)
+- Stata package: [diddesign](https://github.com/gorgeousfish/diddesign)
+- Paper: Egami & Yamauchi (2023). DOI: [10.1017/pan.2023.8](https://doi.org/10.1017/pan.2023.8)
 
 ## License
 
