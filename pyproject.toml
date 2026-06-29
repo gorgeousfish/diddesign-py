@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "diddesign"
-version = "0.1.1"
+version = "0.1.2"
 description = "Multiple-pre-treatment difference-in-differences with inspectable pandas result objects."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,6 +16,7 @@ authors = [
 ]
 maintainers = [
     {name = "Xuanyu Cai", email = "xuanyuCAI@outlook.com"},
+    {name = "Wenli Xu", email = "wlxu@cityu.edu.mo"},
 ]
 keywords = [
     "difference-in-differences",
@@ -24,7 +25,7 @@ keywords = [
     "double did",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
