@@ -67,20 +67,13 @@ Trends      Trends
 ## Installation
 
 ```bash
-pip install diddesign
+pip install git+https://github.com/gorgeousfish/diddesign-py.git
 ```
-
-For repository contributors (editable install from the repo root):
-
-```bash
-python3 -m pip install -e diddesign-py
-```
-
 
 Visualization support (matplotlib):
 
 ```bash
-pip install "diddesign[plot]"
+pip install "diddesign[plot] @ git+https://github.com/gorgeousfish/diddesign-py.git"
 ```
 
 **Requirements:** Python ≥ 3.12, NumPy ≥ 1.26, pandas ≥ 2.2.
