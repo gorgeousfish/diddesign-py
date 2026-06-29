@@ -94,7 +94,11 @@ def _build_covariate_labels(specs: tuple[_AnyCovarSpec, ...]) -> tuple[str, ...]
 
 def _parse_covariates(covariates: Sequence[str] | None) -> tuple[_AnyCovarSpec, ...]:
     if isinstance(covariates, (str, bytes)):
-        raise TypeError("covariates must be a sequence of column names or factor(...) terms.")
+        raise DidValueError(
+            ErrorCode.E002,
+            "covariates must be a sequence of column names or factor(...) terms.",
+            context={"got_type": type(covariates).__name__},
+        )
     specs: list[_AnyCovarSpec] = []
     seen_sources: set[str] = set()
     for entry in covariates or ():
@@ -185,7 +189,11 @@ def _normalize_runtime_surface(
     )
     if option is not None:
         if not isinstance(option, Mapping):
-            raise TypeError("option must be a mapping when provided.")
+            raise DidValueError(
+                ErrorCode.E002,
+                "option must be a mapping when provided.",
+                context={"got_type": type(option).__name__},
+            )
         unknown_keys = sorted(set(option) - {"lead", "thres", "n_boot", "se_boot", "id_cluster"} - _OPTION_IGNORED_KEYS)
         if unknown_keys:
             raise DidValueError(
@@ -196,7 +204,11 @@ def _normalize_runtime_surface(
     resolved_data_type = data_type
     if is_panel is not None:
         if not _is_bool_like(is_panel):
-            raise TypeError("is_panel must be a boolean when provided.")
+            raise DidValueError(
+                ErrorCode.E002,
+                "is_panel must be a boolean when provided.",
+                context={"got_type": type(is_panel).__name__},
+            )
         is_panel = bool(is_panel)
         implied_data_type = "panel" if is_panel else "rcs"
         if data_type != "panel" and data_type != implied_data_type:
@@ -263,7 +275,11 @@ def _resolve_formula_surface(
 ) -> tuple[str, str, str | None, Sequence[str] | None]:
     if formula is None:
         if outcome is None or treatment is None:
-            raise TypeError("outcome and treatment are required when formula is not provided.")
+            raise DidValueError(
+                ErrorCode.E001,
+                "outcome and treatment are required when formula is not provided.",
+                context={"outcome": outcome, "treatment": treatment},
+            )
         return outcome, treatment, post, covariates
 
     if any(value is not None for value in (outcome, treatment, post, covariates)):
@@ -279,7 +295,11 @@ def _resolve_formula_surface(
     elif isinstance(formula, str):
         spec = parse_did_formula(formula, is_panel=expected_panel)
     else:
-        raise TypeError("formula must be a string or DidFormulaSpec.")
+        raise DidValueError(
+            ErrorCode.E002,
+            "formula must be a string or DidFormulaSpec.",
+            context={"got_type": type(formula).__name__},
+        )
 
     if expected_panel and spec.var_post is not None:
         raise DidValueError(
@@ -375,7 +395,11 @@ def _validate_random_seed(random_seed: Any) -> int | None:
 def _validate_parallel(parallel: bool, n_cores: int | None, parallel_backend: str = "thread") -> tuple[bool, int | None, str]:
     """Validate parallel, n_cores, and parallel_backend parameters."""
     if not isinstance(parallel, bool):
-        raise TypeError("parallel must be a boolean.")
+        raise DidValueError(
+            ErrorCode.E002,
+            "parallel must be a boolean.",
+            context={"got_type": type(parallel).__name__},
+        )
     if n_cores is not None:
         if not isinstance(n_cores, int) or isinstance(n_cores, bool) or n_cores < 1:
             raise DidValueError(
@@ -404,26 +428,50 @@ def _validate_optional_column_name(value: Any, *, field_name: str) -> str | None
     if value is None:
         return None
     if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be a column name string when provided.")
+        raise DidValueError(
+            ErrorCode.E002,
+            f"{field_name} must be a column name string when provided.",
+            context={"field": field_name, "got_type": type(value).__name__},
+        )
     if not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty column name.")
+        raise DidValueError(
+            ErrorCode.E002,
+            f"{field_name} must be a non-empty column name.",
+            context={"field": field_name},
+        )
     return value
 
 
 def _validate_required_column_name(value: Any, *, field_name: str) -> str:
     if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be a column name string.")
+        raise DidValueError(
+            ErrorCode.E002,
+            f"{field_name} must be a column name string.",
+            context={"field": field_name, "got_type": type(value).__name__},
+        )
     if not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty column name.")
+        raise DidValueError(
+            ErrorCode.E002,
+            f"{field_name} must be a non-empty column name.",
+            context={"field": field_name},
+        )
     return value
 
 
 def _validate_surface_choice(value: Any, *, field_name: str, supported: set[str]) -> str:
     if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be a string.")
+        raise DidValueError(
+            ErrorCode.E020,
+            f"{field_name} must be a string.",
+            context={"field": field_name, "got_type": type(value).__name__},
+        )
     if value not in supported:
         supported_values = " or ".join(f"'{entry}'" for entry in sorted(supported))
-        raise ValueError(f"{field_name} must be {supported_values}.")
+        raise DidValueError(
+            ErrorCode.E020,
+            f"{field_name} must be {supported_values}. Got '{value}'.",
+            context={"field": field_name, "value": value, "supported": sorted(supported)},
+        )
     return value
 
 
@@ -3228,7 +3276,7 @@ def did(
     parallel_backend: str = "thread",
     worker_timeout: float | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
-    verbose: int = 1,
+    verbose: int | bool = 1,
     option: Mapping[str, Any] | None = None,
     is_panel: bool | None = None,
     kmax: int = 2,
@@ -3302,8 +3350,9 @@ def did(
         Legacy option mapping for backward compatibility.
     is_panel : bool, optional
         Deprecated alias for data_type='panel'.
-    verbose : int, default 1
-        Output verbosity level.
+    verbose : int or bool, default 1
+        Output verbosity level. Accepts ``True`` (equivalent to 2) or
+        ``False`` (equivalent to 0).
         0 = suppress all DidWarning messages (quiet mode).
         1 = default behavior (warnings emitted normally).
         2 = progress display during bootstrap and completion summary.
@@ -3322,8 +3371,10 @@ def did(
     import sys as _sys
     import time as _time
 
-    # Validate verbose parameter
-    if not isinstance(verbose, int) or verbose < 0 or verbose > 2:
+    # Validate verbose parameter: accept bool (True→2) or int
+    if isinstance(verbose, bool):
+        verbose = 2 if verbose else 0
+    elif not isinstance(verbose, int) or verbose < 0 or verbose > 2:
         verbose = 1  # fallback to default
 
     # verbose=0: suppress DidWarning via context manager

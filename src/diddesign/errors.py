@@ -74,6 +74,7 @@ ERROR_SUGGESTIONS: dict[str, str] = {
     "E014": "SA design is not supported for RCS data. Use design='did' or switch to panel data.",
     "E016": "Cannot specify both id() and post(). Use id/unit_id for panel, post for RCS.",
     "E018": "RCS design requires cluster(). Specify id_cluster for bootstrap inference.",
+    "E020": "design must be 'did' or 'sa'; data_type must be 'panel' or 'rcs'.",
 }
 
 

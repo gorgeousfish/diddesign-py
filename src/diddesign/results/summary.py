@@ -259,12 +259,32 @@ def format_summary(
             columns=_DIAGNOSTIC_SUMMARY_RENDER_COLUMNS,
             digits=digits,
         )
-    return _render_summary_table(
+    table = _render_summary_table(
         title="DIDdesign Summary",
         rows=rows,
         columns=_ESTIMATOR_SUMMARY_RENDER_COLUMNS,
         digits=digits,
     )
+    # Append J-test information if available
+    if isinstance(result, DidResult):
+        jtest_lines: list[str] = []
+        k_weights = result.metadata.get("k_weights_by_lead")
+        if k_weights and isinstance(k_weights, Mapping):
+            for lead_key, info in k_weights.items():
+                if not isinstance(info, Mapping):
+                    continue
+                jstat = info.get("jtest_stat")
+                if jstat is not None:
+                    jdf = info.get("jtest_df")
+                    jpval = info.get("jtest_pval")
+                    df_str = f", df={jdf}" if jdf is not None else ""
+                    p_str = f", p-value={jpval:.{digits}f}" if jpval is not None else ""
+                    jtest_lines.append(
+                        f"J-test (lead={lead_key}): statistic={jstat:.{digits}f}{df_str}{p_str}"
+                    )
+        if jtest_lines:
+            table += "\n\n" + "\n".join(jtest_lines)
+    return table
 
 
 __all__ = ["format_summary", "summary"]

@@ -1231,17 +1231,28 @@ class DidResult:
             columns=_GMM_COLUMNS,
         )
 
-    def report(self, verbose: int = 1) -> None:
-        """Print diagnostic report for this estimation result.
-    
+    def report(self, verbose: int = 1) -> str:
+        """Return diagnostic report for this estimation result as a string.
+
         Parameters
         ----------
         verbose : int, default 1
             0=silent, 1=summary, 2=detailed
+
+        Returns
+        -------
+        str
+            Formatted diagnostic report.
         """
+        import io
+        import contextlib
+
         from ..diagnostics_reporter import DiagnosticsReporter
         reporter = DiagnosticsReporter(self, verbose=verbose)
-        reporter.print_report()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            reporter.print_report()
+        return buf.getvalue()
     
     def report_dict(self) -> dict[str, Any]:
         """Return diagnostic info as a dictionary."""
@@ -1429,14 +1440,34 @@ class DidResult:
                 elif z > 1.645:
                     star = "*"
             se_str = f"  SE={est.std_error:.4f}" if est.std_error else ""
-            ci_str = f"  CI=[{est.ci_lo:.4f}, {est.ci_hi:.4f}]" if est.ci_lo is not None else ""
+            ci_str = (
+                f"  CI=[{est.ci_lo:.4f}, {est.ci_hi:.4f}]"
+                if est.ci_lo is not None and est.ci_hi is not None
+                else ""
+            )
             lines.append(f"    {est.estimator:15s} lead={est.lead}: "
                          f"{est.estimate:.6f}{star}{se_str}{ci_str}")
-        w_rows = self.weight_rows()
+        try:
+            w_rows = self.weight_rows()
+        except (TypeError, KeyError, AttributeError):
+            w_rows = ()
         if w_rows:
             w = w_rows[0]
             if w.double_did_available:
                 lines.append(f"  Weights: w_DID={w.w_did:.4f}, w_sDID={w.w_sdid:.4f}")
+        # J-test info
+        k_weights = self.metadata.get("k_weights_by_lead")
+        if k_weights:
+            for lead_key, info in k_weights.items():
+                if not isinstance(info, Mapping):
+                    continue
+                jstat = info.get("jtest_stat")
+                if jstat is not None:
+                    jdf = info.get("jtest_df")
+                    jpval = info.get("jtest_pval")
+                    df_str = f", df={jdf}" if jdf is not None else ""
+                    p_str = f", p-value={jpval:.3f}" if jpval is not None else ""
+                    lines.append(f"  J-test (lead={lead_key}): statistic={jstat:.3f}{df_str}{p_str}")
         return "\n".join(lines)
 
     def to_k_weights_frame(self) -> pd.DataFrame:
