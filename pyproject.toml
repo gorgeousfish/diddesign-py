@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "diddesign"
-version = "0.1.0"
+version = "0.1.1"
 description = "Multiple-pre-treatment difference-in-differences with inspectable pandas result objects."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,10 +37,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gorgeousfish/did-design"
-Documentation = "https://did-design.readthedocs.io"
-Issues = "https://github.com/gorgeousfish/did-design/issues"
-Source = "https://github.com/gorgeousfish/did-design"
+Homepage = "https://github.com/gorgeousfish/diddesign-py"
+Documentation = "https://diddesign-py.readthedocs.io"
+Issues = "https://github.com/gorgeousfish/diddesign-py/issues"
+Source = "https://github.com/gorgeousfish/diddesign-py"
 
 [project.optional-dependencies]
 docs = [
