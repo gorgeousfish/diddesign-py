@@ -66,7 +66,7 @@ class WarningCode(IntEnum):
 
 ERROR_SUGGESTIONS: dict[str, str] = {
     "E001": "Check that all required parameters (unit_id for panel, post for RCS) are provided.",
-    "E002": "Verify parameter values: lead must be non-negative integers, kmax must be 1-8.",
+    "E002": "When using the formula interface, do not pass outcome, treatment, post, or covariates as separate parameters. For non-formula calls, verify that lead values are non-negative integers and kmax is 1-8.",
     "E003": "Ensure the treatment column contains only 0 and 1 values (binary indicator).",
     "E007": "SA design requires absorbing treatment: once treated, a unit stays treated.",
     "E008": "K-DID (kmax>2) requires panel data. Set data_type='panel' and provide unit_id.",

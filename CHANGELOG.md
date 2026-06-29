@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-06-29
+
+### Fixed
+
+- Plot functions no longer call `plt.show()` unconditionally (returns Figure for user control).
+- E002 error suggestion now correctly describes formula vs. parameter conflict.
+- Copyright year updated to 2026.
+
+### Added
+
+- Data loaders (`load_malesky2014`, `load_paglayan2019`) now accessible from top-level `diddesign` namespace.
+
 ## [0.1.4] - 2026-06-29
 
 ### Changed

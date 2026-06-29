@@ -9,7 +9,7 @@ with open(os.path.abspath("../pyproject.toml"), "rb") as handle:
 
 project = "diddesign"
 author = "Xuanyu Cai, Wenli Xu"
-copyright = "2025, Xuanyu Cai, Wenli Xu"
+copyright = "2026, Xuanyu Cai, Wenli Xu"
 release = _pyproject["project"]["version"]
 
 extensions = [

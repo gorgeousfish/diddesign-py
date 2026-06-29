@@ -16,6 +16,7 @@ for downstream analysis, plotting, and LaTeX export.
 from importlib.metadata import PackageNotFoundError, version as _package_version
 
 from .core.data_contracts import DataContractError, DidDataError
+from .data import load_malesky2014, load_paglayan2019
 from .diagnostics import DidCheckDiagnosticRow, DidCheckPatternRow, DidCheckResult, DidCheckTrendRow, did_check
 from .diagnostics_reporter import DiagnosticsReporter
 from .errors import (
@@ -79,6 +80,8 @@ __all__ = [
     "did_check",
     "did_formula",
     "fit",
+    "load_malesky2014",
+    "load_paglayan2019",
     "format_summary",
     "plot_diagnostics",
     "plot_estimates",

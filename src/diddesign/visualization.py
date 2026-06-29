@@ -67,14 +67,11 @@ def _apply_default_style(ax, *, title: str | None, xlabel: str | None, ylabel: s
 
 
 def _finalize_figure(fig, ax, *, save: str | None, dpi: int, show: bool, style: str, _skip_layout: bool = False):
-    """Tight layout, optional save, optional show."""
-    _, plt = _require_matplotlib()
+    """Tight layout, optional save."""
     if not _skip_layout:
         fig.tight_layout()
     if save:
         fig.savefig(save, dpi=dpi, bbox_inches="tight")
-    if show:
-        plt.show()
     return fig
 
 
@@ -116,7 +113,7 @@ def plot_estimates(
     save: str | None = None,
     dpi: int = 150,
     ax: Any | None = None,
-    show: bool = True,
+    show: bool = False,
 ) -> Any:
     """Plot Double-DID and SA-Double-DID effect estimates with confidence intervals.
 
@@ -149,7 +146,8 @@ def plot_estimates(
     ax : matplotlib.axes.Axes, optional
         Pre-existing axes to draw on.
     show : bool
-        Whether to call ``plt.show()``.
+        Deprecated. No longer calls ``plt.show()``. The returned Figure
+        can be displayed by the caller.
 
     Returns
     -------
@@ -270,7 +268,7 @@ def plot_trends(
     save: str | None = None,
     dpi: int = 150,
     ax: Any | None = None,
-    show: bool = True,
+    show: bool = False,
 ) -> Any:
     """Plot treated vs. control outcome mean trends.
 
@@ -297,7 +295,8 @@ def plot_trends(
     ax : matplotlib.axes.Axes, optional
         Pre-existing axes.
     show : bool
-        Whether to call ``plt.show()``.
+        Deprecated. No longer calls ``plt.show()``. The returned Figure
+        can be displayed by the caller.
 
     Returns
     -------
@@ -422,7 +421,7 @@ def plot_placebo(
     save: str | None = None,
     dpi: int = 150,
     ax: Any | None = None,
-    show: bool = True,
+    show: bool = False,
 ) -> Any:
     """Plot pre-treatment placebo test results.
 
@@ -447,7 +446,8 @@ def plot_placebo(
     ax : matplotlib.axes.Axes, optional
         Pre-existing axes.
     show : bool
-        Whether to call ``plt.show()``.
+        Deprecated. No longer calls ``plt.show()``. The returned Figure
+        can be displayed by the caller.
 
     Returns
     -------
@@ -556,7 +556,7 @@ def plot_pattern(
     save: str | None = None,
     dpi: int = 150,
     ax: Any | None = None,
-    show: bool = True,
+    show: bool = False,
 ) -> Any:
     """Plot staggered-adoption treatment timing heatmap.
 
@@ -579,7 +579,8 @@ def plot_pattern(
     ax : matplotlib.axes.Axes, optional
         Pre-existing axes.
     show : bool
-        Whether to call ``plt.show()``.
+        Deprecated. No longer calls ``plt.show()``. The returned Figure
+        can be displayed by the caller.
 
     Returns
     -------
@@ -704,7 +705,7 @@ def plot_diagnostics(
     ci_level: float = 0.90,
     save: str | None = None,
     dpi: int = 150,
-    show: bool = True,
+    show: bool = False,
 ) -> Any:
     """Plot combined diagnostic panel.
 
@@ -739,7 +740,8 @@ def plot_diagnostics(
     dpi : int
         Resolution.
     show : bool
-        Whether to call ``plt.show()``.
+        Deprecated. No longer calls ``plt.show()``. The returned Figure
+        can be displayed by the caller.
 
     Returns
     -------
@@ -869,8 +871,6 @@ def plot_diagnostics(
 
     if save:
         fig.savefig(save, dpi=dpi, bbox_inches="tight")
-    if show:
-        plt.show()
 
     return fig
 
@@ -889,7 +889,7 @@ def plot_diagnostics_panel(
     *,
     figsize: tuple[float, float] = (14, 4),
     save: str | None = None,
-    show: bool = True,
+    show: bool = False,
     dpi: int = 150,
 ) -> Any:
     """Auto-combine diagnostic plots into a multi-panel figure.
@@ -1037,8 +1037,6 @@ def plot_diagnostics_panel(
 
     if save:
         fig.savefig(save, dpi=dpi, bbox_inches="tight")
-    if show:
-        plt.show()
 
     return fig
 
