@@ -12,6 +12,7 @@ license = "GPL-2.0-only"
 license-files = ["LICENSE"]
 authors = [
     {name = "Xuanyu Cai", email = "xuanyuCAI@outlook.com"},
+    {name = "Wenli Xu", email = "wlxu@cityu.edu.mo"},
 ]
 maintainers = [
     {name = "Xuanyu Cai", email = "xuanyuCAI@outlook.com"},
@@ -37,12 +38,14 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/gorgeousfish/did-design"
+Documentation = "https://did-design.readthedocs.io"
 Issues = "https://github.com/gorgeousfish/did-design/issues"
 Source = "https://github.com/gorgeousfish/did-design"
 
 [project.optional-dependencies]
 docs = [
     "sphinx>=7",
+    "sphinx-rtd-theme>=2.0",
 ]
 plot = [
     "matplotlib>=3.5",
@@ -55,6 +58,9 @@ python_classes = ["Test"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+diddesign = ["data/*.csv"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

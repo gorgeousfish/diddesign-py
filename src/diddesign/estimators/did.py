@@ -1321,6 +1321,14 @@ def _jtest_moment_selection(
     active_keys = list(all_keys)
     dropped: list[int] = []
 
+    # Early validity check on input covariance matrix
+    if not np.isfinite(vcov).all():
+        # NaN/Inf in covariance matrix: return all moments unchanged
+        return dict(component_estimates), vcov, 0.0, 0, 1.0, ()
+    if np.any(np.diag(vcov) <= 0):
+        # Non-positive diagonal: invalid variance estimates
+        return dict(component_estimates), vcov, 0.0, 0, 1.0, ()
+
     # Initial J-test on full set
     J_stat, J_df, J_pval = _compute_jstat(active_keys, component_estimates, vcov, all_keys)
 
@@ -1366,6 +1374,9 @@ def _compute_jstat(
 ) -> tuple[float, int, float]:
     """Compute J-statistic for a subset of moment conditions.
 
+    Implements: J = g(τ̂)ᵀ Ŵ g(τ̂) ~ χ²(K-1)
+    where g(τ̂) = θ - τ̂·1, Ŵ = Σ̂⁻¹, τ̂ = (1ᵀŴ1)⁻¹ · 1ᵀŴθ.
+
     Returns (J_stat, J_df, J_pval). Returns (0.0, 0, 1.0) on numerical failure.
     """
     K = len(active_keys)
@@ -1376,18 +1387,28 @@ def _compute_jstat(
     active_idx = [all_keys.index(k) for k in active_keys]
     sub_vcov = vcov[np.ix_(active_idx, active_idx)]
 
-    # Numerical stability checks
+    # --- Numerical stability checks ---
+    # (a) Negative or zero diagonal (invalid variance)
     diag = np.diag(sub_vcov)
-    if np.any(diag < 0):
+    if np.any(diag <= 0):
         return 0.0, 0, 1.0
+
+    # (b) Condition number check (parallels Stata safe_invert threshold)
     cond = np.linalg.cond(sub_vcov)
     if cond > 1e12 or not np.isfinite(cond):
         return 0.0, 0, 1.0
 
+    # (c) Eigenvalue check for positive definiteness
+    eigvals = np.linalg.eigvalsh(sub_vcov)
+    if np.any(eigvals <= 0):
+        return 0.0, 0, 1.0
+
+    # --- Safe matrix inversion with pinv fallback ---
     try:
         W = np.linalg.inv(sub_vcov)
     except np.linalg.LinAlgError:
-        return 0.0, 0, 1.0
+        # Fallback to pseudo-inverse
+        W = np.linalg.pinv(sub_vcov)
 
     if not np.isfinite(W).all():
         return 0.0, 0, 1.0
@@ -1476,6 +1497,18 @@ def _compute_kdid_row(
     if K_final < K_init:
         active_idx = [k_keys.index(k) for k in active_keys]
         active_vcov = vcov[np.ix_(active_idx, active_idx)]
+
+    # Condition number check for K-DID covariance matrix (Appendix E.2)
+    if K_final > 1 and active_vcov.shape[0] > 1:
+        _cond = np.linalg.cond(active_vcov)
+        if _cond > 1e12 or not np.isfinite(_cond):
+            did_warn(
+                WarningCode.W007,
+                "K-DID covariance matrix condition number exceeds numerical "
+                "stability threshold. Consider reducing kmax.",
+                context={"condition_number": f"{_cond:.1e}", "K": K_final, "lead": lead},
+                stacklevel=4,
+            )
 
     # Singularity degradation: reduce K until vcov is invertible
     while K_final > 1:
@@ -3201,7 +3234,29 @@ def did(
     kmax: int = 2,
     jtest: bool = False,
 ) -> DidResult:
-    """Estimate DID, Double-DID, K-DID, or SA variants.
+    """Estimate DID, Double-DID, K-DID, or staggered-adoption variants.
+
+    The Double DID estimator (Egami and Yamauchi, 2023) addresses the question
+    of how to exploit multiple pre-treatment periods in a difference-in-
+    differences design. Standard DID identifies the ATT under the parallel
+    trends assumption (A1); sequential DID identifies it under the weaker
+    parallel trends-in-trends assumption (A2), which permits linear divergence
+    in trends but requires an additional pre-treatment period. These two
+    assumptions are logically independent.
+
+    The Double DID formulates a GMM problem: given the 2×1 vector of component
+    estimates (τ̂_DID, τ̂_sDID)' and its bootstrap covariance Σ̂, the optimal
+    combination weights w = Σ̂⁻¹1 / (1'Σ̂⁻¹1) minimize asymptotic variance.
+    When both A1 and A2 hold, the combined estimate is at least as efficient
+    as either component; when only one holds, the GMM estimator remains
+    consistent under that assumption alone.
+
+    With kmax ≥ 3, the K-DID extension adds higher-order transformed-outcome
+    estimators whose identifying assumptions permit polynomial time-varying
+    confounding up to degree (K−1). The J-test (``jtest=True``) performs an
+    overidentification check and adaptively discards moment conditions that
+    appear violated, providing robustness against misspecified higher-order
+    assumptions.
 
     Parameters
     ----------
@@ -3350,6 +3405,19 @@ def did(
     return result
 
 
+def _maybe_convert_polars(data):
+    """Convert polars DataFrame/LazyFrame to pandas if polars is available."""
+    try:
+        import polars as pl
+        if isinstance(data, (pl.DataFrame, pl.LazyFrame)):
+            if isinstance(data, pl.LazyFrame):
+                data = data.collect()
+            return data.to_pandas()
+    except ImportError:
+        pass
+    return data
+
+
 def _did_inner(
     data: Iterable[Mapping[str, Any]] | pd.DataFrame,
     *,
@@ -3380,6 +3448,7 @@ def _did_inner(
     jtest: bool = False,
 ) -> DidResult:
     """Inner implementation of did() without verbose wrapper."""
+    data = _maybe_convert_polars(data)
     data_type, lead, thres, n_boot, se_boot, id_cluster = _normalize_runtime_surface(
         option=option,
         data_type=data_type,
@@ -3404,6 +3473,18 @@ def _did_inner(
     validated_se_boot = _validate_se_boot(se_boot, design=design)
     validated_level = _validate_level(level)
     validated_thres = _validate_thres(thres, design=design)
+
+    # n_boot adequacy warning (Egami & Yamauchi 2023 use n_boot=2000 in applications)
+    if validated_n_boot < 200 and (validated_se_boot or kmax > 2):
+        did_warn(
+            WarningCode.W012,
+            "n_boot={} is below 200. Bootstrap weight estimates may be unstable. "
+            "For publication-quality inference, consider n_boot>=2000 "
+            "(Egami and Yamauchi 2023).".format(validated_n_boot),
+            context={"n_boot": validated_n_boot, "recommended_minimum": 200},
+            stacklevel=2,
+        )
+
     outcome, treatment, post, covariates = _resolve_formula_surface(
         formula=formula,
         outcome=outcome,
@@ -3466,6 +3547,17 @@ def _did_inner(
             metadata["encoding_map"] = _encoding_metadata
 
         validated_kmax = _validate_kmax(kmax)
+
+        # J-test requires K > 2 moment conditions (df = K-1 >= 2)
+        if jtest and validated_kmax <= 2:
+            did_warn(
+                WarningCode.W011,
+                "J-test requires kmax > 2 for meaningful overidentification testing "
+                "(df = K-1 >= 2). Disabling jtest.",
+                context={"kmax": validated_kmax},
+                stacklevel=2,
+            )
+            jtest = False
 
         # ===== SA + K-DID path (kmax > 2) =====
         if validated_kmax > 2:
@@ -3754,6 +3846,17 @@ def _did_inner(
         metadata["encoding_map"] = _encoding_metadata
 
     validated_kmax = _validate_kmax(kmax)
+
+    # J-test requires K > 2 moment conditions (df = K-1 >= 2)
+    if jtest and validated_kmax <= 2:
+        did_warn(
+            WarningCode.W011,
+            "J-test requires kmax > 2 for meaningful overidentification testing "
+            "(df = K-1 >= 2). Disabling jtest.",
+            context={"kmax": validated_kmax},
+            stacklevel=2,
+        )
+        jtest = False
 
     if validated_kmax > 2:
         # ===== K-DID path (kmax > 2) =====

@@ -56,6 +56,25 @@ class WarningCode(IntEnum):
     W008 = 8   # GMM weights do not sum to 1
     W009 = 9   # GMM weights outside [0, 1]
     W010 = 10  # Bootstrap effective sample insufficient
+    W011 = 11  # J-test disabled: insufficient moment conditions (kmax <= 2)
+    W012 = 12  # Bootstrap iterations below recommended threshold
+
+
+# ---------------------------------------------------------------------------
+# Fix Suggestions for Common Errors
+# ---------------------------------------------------------------------------
+
+ERROR_SUGGESTIONS: dict[str, str] = {
+    "E001": "Check that all required parameters (unit_id for panel, post for RCS) are provided.",
+    "E002": "Verify parameter values: lead must be non-negative integers, kmax must be 1-8.",
+    "E003": "Ensure the treatment column contains only 0 and 1 values (binary indicator).",
+    "E007": "SA design requires absorbing treatment: once treated, a unit stays treated.",
+    "E008": "K-DID (kmax>2) requires panel data. Set data_type='panel' and provide unit_id.",
+    "E009": "Bootstrap needs at least 2 clusters. Check id_cluster or unit_id has >=2 unique values.",
+    "E014": "SA design is not supported for RCS data. Use design='did' or switch to panel data.",
+    "E016": "Cannot specify both id() and post(). Use id/unit_id for panel, post for RCS.",
+    "E018": "RCS design requires cluster(). Specify id_cluster for bootstrap inference.",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +103,11 @@ class DidError(Exception):
         self.message = message
         self.context = context or {}
         # Build detailed multi-line message
-        detail_parts = [f"[E{int(code):03d}] {message}"]
+        code_str = f"E{int(code):03d}"
+        detail_parts = [f"[{code_str}] {message}"]
+        suggestion = ERROR_SUGGESTIONS.get(code_str, "")
+        if suggestion:
+            detail_parts.append(f"  Suggestion: {suggestion}")
         if self.context:
             detail_parts.append("  Context:")
             for k, v in self.context.items():

@@ -1,4 +1,17 @@
-"""Public DIDdesign package interface."""
+"""diddesign: Double Difference-in-Differences for Python.
+
+This package implements the multiple-pre-treatment DID estimator proposed by
+Egami and Yamauchi (2023, Political Analysis). It combines standard DID and
+sequential DID via efficient GMM weighting, extending to K-DID for panels
+with three or more pre-treatment periods and to staggered-adoption designs
+with lead-specific estimates.
+
+The public interface consists of two estimation functions—:func:`did` for
+treatment effect estimation and :func:`did_check` for pre-treatment
+diagnostics—together with immutable result objects (:class:`DidResult`,
+:class:`DidCheckResult`) whose frame accessors return pandas DataFrames
+for downstream analysis, plotting, and LaTeX export.
+"""
 
 from importlib.metadata import PackageNotFoundError, version as _package_version
 
@@ -58,7 +71,6 @@ __all__ = [
     "DidCheckTrendRow",
     "DidEstimateRow",
     "DidGmmRow",
-    "DidGmmAuditRow",
     "DidResult",
     "DIDResult",
     "DidWeightRow",

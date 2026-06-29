@@ -12,4 +12,5 @@ prune src/diddesign/__pycache__
 prune src/diddesign/core/__pycache__
 prune src/diddesign/estimators/__pycache__
 prune src/diddesign/results/__pycache__
+recursive-include src/diddesign/data *.csv
 global-exclude *.py[cod]

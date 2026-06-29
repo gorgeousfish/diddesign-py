@@ -1045,11 +1045,30 @@ class DidGmmRow:
 
 @dataclass(frozen=True)
 class DidResult:
-    """Bootstrap-friendly estimator result object with immutable metadata.
+    """Immutable result of DID, Double-DID, K-DID, or SA estimation.
 
-    Nested metadata is frozen at construction time so estimator results cannot be
-    changed through caller-owned dictionaries. ``to_serialized_result()``
-    returns detached serialized records for downstream scripts.
+    Returned by :func:`did`, this object stores the full estimation output:
+    point estimates for each component estimator, bootstrap draws used to
+    compute standard errors and GMM weights, and metadata recording the
+    design configuration.
+
+    The object is frozen at construction time; nested metadata dictionaries
+    are recursively converted to immutable mappings so that downstream code
+    cannot accidentally mutate the estimation record.
+
+    Frame accessors provide the primary interface for reporting:
+
+    - ``to_estimates_frame()`` — component and combined estimates as a
+      pandas DataFrame with columns: estimator, lead, estimate, std_error,
+      ci_lo, ci_hi, weight.
+    - ``to_bootstrap_frame()`` — raw bootstrap draws (iterations × components)
+      for custom inference or diagnostic inspection.
+    - ``to_weights_frame()`` — per-lead GMM weights showing how the data
+      allocate efficiency across DID and sDID.
+    - ``to_gmm_frame()`` — full GMM calculation rows including the bootstrap
+      covariance matrix and weight matrix entries.
+    - ``to_k_weights_frame()`` — K-dimensional weight vectors for K-DID.
+    - ``to_latex()`` — publication-ready LaTeX table string.
     """
 
     estimates: tuple[DidEstimateRow, ...]
@@ -1230,6 +1249,196 @@ class DidResult:
         reporter = DiagnosticsReporter(self, verbose=2)
         return reporter.to_dict()
     
+    def to_dataframe(self) -> "pd.DataFrame":
+        """Convert estimates to a pandas DataFrame.
+
+        Returns a DataFrame with columns: estimator, lead, estimate,
+        std_error, ci_lo, ci_hi, weight.
+
+        Returns
+        -------
+        pd.DataFrame
+
+        Examples
+        --------
+        >>> result = did(data, ...)
+        >>> df = result.to_dataframe()
+        >>> df[df["estimator"] == "Double-DID"]
+        """
+        import pandas as pd
+        rows = []
+        for est in self.estimates:
+            rows.append({
+                "estimator": est.estimator,
+                "lead": est.lead,
+                "estimate": est.estimate,
+                "std_error": est.std_error,
+                "ci_lo": est.ci_lo,
+                "ci_hi": est.ci_hi,
+                "weight": est.weight,
+            })
+        return pd.DataFrame(rows)
+
+    def to_latex(
+        self,
+        *,
+        caption: str | None = None,
+        label: str | None = None,
+        decimal_places: int = 4,
+        include_ci: bool = True,
+        include_weight: bool = False,
+        stars: bool = True,
+    ) -> str:
+        """Export estimates as a LaTeX table string.
+
+        Produces a publication-ready LaTeX tabular environment suitable for
+        direct inclusion in academic papers.
+
+        Parameters
+        ----------
+        caption : str, optional
+            Table caption. If None, no caption is added.
+        label : str, optional
+            LaTeX label for cross-referencing.
+        decimal_places : int, optional
+            Number of decimal places for numerical values. Default 4.
+        include_ci : bool, optional
+            Whether to include confidence interval columns. Default True.
+        include_weight : bool, optional
+            Whether to include GMM weight column. Default False.
+        stars : bool, optional
+            Whether to add significance stars (\* p<0.10, \*\* p<0.05, \*\*\* p<0.01).
+            Uses normal approximation: abs(estimate/se) > z_crit. Default True.
+
+        Returns
+        -------
+        str
+            Complete LaTeX table string (with \\begin{table}...\\end{table}).
+
+        Examples
+        --------
+        >>> result = did(data, ...)
+        >>> print(result.to_latex(caption="Double DID Estimates"))
+        >>> # Write to file
+        >>> with open("table1.tex", "w") as f:
+        ...     f.write(result.to_latex())
+        """
+        fmt = f"{{:.{decimal_places}f}}"
+
+        def _fmt(value: float | None) -> str:
+            if value is None:
+                return ""
+            return fmt.format(value)
+
+        def _stars(estimate: float, std_error: float | None) -> str:
+            if not stars or std_error is None or std_error == 0:
+                return ""
+            z = abs(estimate / std_error)
+            if z > 2.576:
+                return "$^{***}$"
+            elif z > 1.96:
+                return "$^{**}$"
+            elif z > 1.645:
+                return "$^{*}$"
+            return ""
+
+        # Build column spec
+        col_headers = ["Estimator", "Lead", "Estimate", "Std. Error"]
+        col_align = "llrr"
+        if include_ci:
+            col_headers += ["CI Low", "CI High"]
+            col_align += "rr"
+        if include_weight:
+            col_headers += ["Weight"]
+            col_align += "r"
+
+        lines: list[str] = []
+        lines.append(r"\begin{table}[htbp]")
+        lines.append(r"\centering")
+        if caption is not None:
+            lines.append(r"\caption{" + caption + "}")
+        if label is not None:
+            lines.append(r"\label{" + label + "}")
+        lines.append(r"\begin{tabular}{" + col_align + "}")
+        lines.append(r"\hline\hline")
+        lines.append(" & ".join(col_headers) + r" \\")
+        lines.append(r"\hline")
+
+        for row in self.estimates:
+            est_str = _fmt(row.estimate) + _stars(row.estimate, row.std_error)
+            cells = [
+                row.estimator,
+                str(row.lead),
+                est_str,
+                _fmt(row.std_error),
+            ]
+            if include_ci:
+                cells.append(_fmt(row.ci_lo))
+                cells.append(_fmt(row.ci_hi))
+            if include_weight:
+                cells.append(_fmt(row.weight))
+            lines.append(" & ".join(cells) + r" \\")
+
+        lines.append(r"\hline\hline")
+        if stars:
+            lines.append(
+                r"\multicolumn{"
+                + str(len(col_headers))
+                + r"}{l}{\footnotesize Note: $^{*}$p$<$0.10, $^{**}$p$<$0.05, $^{***}$p$<$0.01} \\"
+            )
+        lines.append(r"\end{tabular}")
+        lines.append(r"\end{table}")
+        return "\n".join(lines)
+
+    def to_polars(self) -> "pl.DataFrame":
+        """Convert estimates to a polars DataFrame.
+
+        Requires polars to be installed.
+
+        Returns
+        -------
+        polars.DataFrame
+
+        Raises
+        ------
+        ImportError
+            If polars is not installed.
+        """
+        try:
+            import polars as pl
+        except ImportError:
+            raise ImportError(
+                "polars is required for to_polars(). Install with: pip install polars"
+            )
+        return pl.from_pandas(self.to_dataframe())
+
+    def __repr__(self) -> str:
+        """Human-readable summary for REPL/Notebook display."""
+        lines = [f"DidResult(design='{self.metadata.get('design', '?')}', "
+                 f"data_type='{self.metadata.get('data_type', '?')}', "
+                 f"n_boot={self.metadata.get('n_boot_realized', '?')})"]
+        lines.append(f"  Estimates ({len(self.estimates)} rows):")
+        for est in self.estimates:
+            star = ""
+            if est.std_error and est.std_error > 0:
+                z = abs(est.estimate / est.std_error)
+                if z > 2.576:
+                    star = "***"
+                elif z > 1.96:
+                    star = "**"
+                elif z > 1.645:
+                    star = "*"
+            se_str = f"  SE={est.std_error:.4f}" if est.std_error else ""
+            ci_str = f"  CI=[{est.ci_lo:.4f}, {est.ci_hi:.4f}]" if est.ci_lo is not None else ""
+            lines.append(f"    {est.estimator:15s} lead={est.lead}: "
+                         f"{est.estimate:.6f}{star}{se_str}{ci_str}")
+        w_rows = self.weight_rows()
+        if w_rows:
+            w = w_rows[0]
+            if w.double_did_available:
+                lines.append(f"  Weights: w_DID={w.w_did:.4f}, w_sDID={w.w_sdid:.4f}")
+        return "\n".join(lines)
+
     def to_k_weights_frame(self) -> pd.DataFrame:
         """Return K-dimensional GMM weight rows for K-DID/SA-K-DID results.
 

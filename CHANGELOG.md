@@ -1,35 +1,23 @@
 # Changelog
 
-All notable changes to the `diddesign` package will be documented in this file.
+All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-06-28
+## [0.1.0] - 2026-06-29
 
 ### Added
-- Core DID estimator (`did()`) supporting standard DID and staggered adoption (SA) designs
-- Generalized K-DID estimation with configurable `kmax` parameter (1-8)
-- J-test over-identification test with nested moment deletion (`jtest=True`)
-- Sequential DID (sDID), Double-DID, and SA-Double-DID estimators
-- Bootstrap inference with cluster-level resampling and deterministic seed management
-- Parallel bootstrap via `ThreadPoolExecutor` and `ProcessPoolExecutor` backends
-- Diagnostic checks (`did_check()`) with equivalence confidence intervals
-- Formula parsing (`did_formula()`) supporting R-style syntax with factor/interaction terms
-- Five visualization functions: `plot_estimates`, `plot_trends`, `plot_placebo`, `plot_pattern`, `plot_diagnostics`
-- Plotting data preparation via `fit()` and `check()` functions
-- Result summary via `summary()` and `format_summary()`
-- Structured error code system (E001-E020) aligned with Stata implementation
-- Structured warning system (W001-W010) for diagnostic feedback
-- Automatic string-to-integer encoding for unit_id and cluster columns
-- Verbose parameter (0=quiet, 1=default, 2=progress) for output control
-- Immutable result objects using frozen dataclasses and MappingProxyType
-- Panel data and repeated cross-section (RCS) support
-- Covariate adjustment with numeric, factor, and interaction terms
-- Publication-quality matplotlib figures with `style="publication"`
 
-### Dependencies
-- numpy >= 1.26
-- pandas >= 2.2
-- Python >= 3.12
-- Optional: matplotlib >= 3.5 (for plotting)
+- Core estimators: DID, Double-DID, K-DID, SA-DID, SA-Double-DID, SA-K-DID
+- J-test overidentification moment selection for K-DID (Hansen 1982)
+- Pre-treatment diagnostics: placebo tests, equivalence confidence intervals, trend comparison
+- Five visualization functions: plot_estimates, plot_trends, plot_placebo, plot_diagnostics, plot_pattern
+- Publication-quality plotting with "publication" style preset
+- Formula interface supporting covariates, factor variables, and interactions
+- Structured error system with guided messages (E001-E020, W001-W012)
+- Built-in datasets: Malesky et al. (2014), Paglayan (2019)
+- Immutable result objects with pandas DataFrame accessors
+- LaTeX table export via to_latex()
+- Full type annotations with py.typed marker
+- Sphinx documentation for ReadTheDocs deployment

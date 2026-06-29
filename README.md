@@ -1,112 +1,83 @@
-# diddesign: Double Difference-in-Differences for Python
+# diddesign
 
-[![Python >=3.12](https://img.shields.io/badge/python-%E2%89%A53.12-blue)](https://www.python.org/)
+**Double Difference-in-Differences for Python**
+
+[![Python ≥3.12](https://img.shields.io/badge/python-%E2%89%A53.12-blue)](https://www.python.org/)
 [![License: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-green)](LICENSE)
 
-> Python implementation of the multiple-pre-treatment Difference-in-Differences
-> estimator proposed by Egami & Yamauchi (2023, *Political Analysis*).
+<p align="center">
+  <img src="image/image.png" alt="diddesign" width="100%">
+</p>
 
 ## Overview
 
-`diddesign` implements the multiple-pre-treatment DID framework that combines
-standard DID and sequential DID estimators via an efficient GMM weighting
-scheme. The **Double DID** estimator exploits all available pre-treatment
-periods to produce a more efficient combined estimate under weaker
-identification assumptions than either component alone.
+`diddesign` implements the Double Difference-in-Differences estimator
+proposed by Egami and Yamauchi (2023, *Political Analysis*). The method
+addresses a practical question in observational panel studies: when multiple
+pre-treatment periods are available, how should an analyst exploit them to
+strengthen causal inference?
 
-**Three key advantages of the Double DID approach:**
+The standard DID estimator requires parallel trends between the last
+pre-treatment period and the post-treatment period. The sequential DID
+(sDID) estimator requires the weaker parallel trends-in-trends assumption
+but uses an additional pre-treatment period. These two assumptions are
+logically distinct—neither implies the other. The Double DID formulates a
+GMM problem that combines both estimators with variance-minimizing weights.
+When both identification conditions hold, the combined estimate achieves
+lower variance than either component alone; when only one holds, the
+framework remains consistent under that condition.
 
-1. **Weaker assumptions** — Requires only one of the two standard parallel-trends
-   conditions (either the conventional or the sequential version) to hold,
-   providing partial robustness to violations.
-2. **Efficiency gains** — The GMM-optimal combination of DID and sequential DID
-   achieves lower variance than either component when both identification
-   conditions hold.
-3. **Built-in diagnostics** — Pre-treatment placebo tests, trend visualizations,
-   and pattern checks are accessible from a single function call.
+The package extends to K-DID (Appendix E of the paper): given K ≥ 3
+pre-treatment periods, higher-order transformed-outcome estimators provide
+additional moment conditions that permit up to (K−1)-degree polynomial
+time-varying confounding, combined via the same GMM weighting. A J-test
+moment-selection step adaptively discards misspecified components.
 
-**Package highlights:**
+For staggered-adoption designs, the package computes lead-specific SA-DID,
+SA-sDID, and SA-Double-DID (or SA-K-DID) estimates and aggregates them into
+a time-weighted average treatment effect.
 
-- Native Python/pandas workflow — fit, inspect, export, and plot without
-  leaving the Python ecosystem.
-- Immutable `DidResult` objects with frame accessors for estimates, bootstrap
-  draws, GMM weights, and covariance-matrix rows.
-- K-DID extension for panels with more than two pre-treatment periods
-  (`kmax ≥ 3`).
-- J-test overidentification check with adaptive moment selection (`jtest=True`).
-- Staggered-adoption design with lead-specific estimates (`design="sa"`).
-- Publication-grade matplotlib visualizations built in.
-- Parallel bootstrap via `parallel=True`.
-- Covariate adjustment with `factor()` categorical encoding and `x1:x2`
-  interaction terms.
+## Identification Assumptions
 
-**When to use `diddesign`:** Use this package when the analysis targets the
-Egami-Yamauchi multiple-pre-treatment DID design and the reporting task needs
-access to component estimates, GMM weights, diagnostics, bootstrap draws, and
-plotting rows after fitting. For adjacent DID tasks, other Python packages may
-be the better first choice: PyFixest for fixed-effects DID and event-study
-regression, `differences` for cohort-time ATT(g,t) estimation, DoubleML for
-DID with machine-learning nuisance estimation, CausalPy for broader
-quasi-experimental Bayesian/OLS workflows, `sdid` for synthetic DID, and
-`diff-diff` for a broader scikit-learn-style DID toolkit.
+The Double DID framework rests on two assumptions about the counterfactual
+trend structure:
 
-## Key Concepts
+| Assumption | Formal Name               | Permitted Bias               |
+| ---------- | ------------------------- | ---------------------------- |
+| A1         | Parallel Trends           | Constant between groups      |
+| A2         | Parallel Trends-in-Trends | Linear change between groups |
 
-### Identification Assumptions
+Standard DID requires A1. Sequential DID requires A2. The Double DID
+requires only that at least one of A1 or A2 holds—a strictly weaker
+condition than either assumption alone. With K ≥ 3 pre-treatment periods,
+K-DID adds higher-order assumptions that accommodate polynomial confounding.
 
-| Assumption | Formal Name | Applies To |
-| --- | --- | --- |
-| A1 | Parallel Trends (PT) | Standard DID |
-| A2 | Parallel Trends in Trends (PTT) | Sequential DID |
-| A1 ∪ A2 | At least one holds | Double DID |
+The identifying relationship is:
 
-### Estimator–Assumption Mapping
-
-| Estimator | Required Assumptions | Available Periods |
-| --- | --- | --- |
-| DID | A1 (Parallel Trends) | ≥ 1 pre, 1 post |
-| Sequential DID (sDID) | A2 (Parallel Trends in Trends) | ≥ 2 pre, 1 post |
-| Double DID | A1 ∪ A2 | ≥ 2 pre, 1 post |
-| K-DID | A1 ∪ A2 ∪ higher-order | ≥ K pre, 1 post |
-
-### When To Use Each Estimator
-
-| Scenario | Recommendation |
-| --- | --- |
-| Standard 2-period panel | Use DID alone (`kmax=1`) |
-| ≥ 2 pre-treatment periods, want robustness | Use Double DID (default `kmax=2`) |
-| ≥ 3 pre-treatment periods, want efficiency | Use K-DID (`kmax=3` or higher) |
-| Multiple treatment timing groups | Use staggered adoption (`design="sa"`) |
-| Suspect non-parallel pre-trends | Run `did_check()` first |
-
-### Equivalence Confidence Intervals
-
-Traditional hypothesis testing interprets non-rejection as evidence for parallel
-trends, but this conflates "no evidence against" with "evidence for." The
-equivalence approach reverses the null hypothesis: rejection of the null (that
-trends differ by more than some threshold) provides positive evidence for
-approximate parallel trends.
-
-The 95% standardized equivalence CI is reported in units of baseline control
-group standard deviations via `did_check()`. As in the original paper and R
-package, there is no universal EqCI cutoff: researchers should use substantive
-domain knowledge to decide whether the reported interval is narrow enough.
+```
+Extended Parallel Trends
+        ↓ implies both
+   ┌────┴────┐
+   ↓         ↓
+Standard    Parallel
+Parallel    Trends-in-
+Trends      Trends
+```
 
 ## Installation
 
-Install from a local checkout (editable mode):
+```bash
+pip install diddesign
+```
+
+For repository contributors (editable install from the repo root):
 
 ```bash
 python3 -m pip install -e diddesign-py
 ```
 
-Or install the built wheel:
 
-```bash
-pip install diddesign-0.1.0-py3-none-any.whl
-```
-
-For visualization support (matplotlib):
+Visualization support (matplotlib):
 
 ```bash
 pip install "diddesign[plot]"
@@ -114,320 +85,229 @@ pip install "diddesign[plot]"
 
 **Requirements:** Python ≥ 3.12, NumPy ≥ 1.26, pandas ≥ 2.2.
 
-## Recommended Workflow
+## Usage
 
-The Double DID follows a two-step workflow:
+The package provides three entry points:
 
-### Step 1: Assess Assumptions with `did_check()`
+- `did()` fits a DID or staggered-adoption design and returns a `DidResult`.
+- `did_check()` computes pre-treatment diagnostics and returns a `DidCheckResult`.
+- `DidResult` provides table-ready accessors (`to_dataframe()`, `to_weights_frame()`, `to_gmm_frame()`, `to_latex()`).
+
+The Double DID workflow proceeds in two steps: first assess the plausibility
+of identification assumptions via pre-treatment diagnostics, then estimate
+treatment effects conditional on those diagnostics.
+
+### Step 1: Assess Pre-treatment Assumptions
 
 ```python
+from diddesign.data import data
 from diddesign import did_check
 
-check = did_check(data=df, outcome="y", treatment="treat",
-                  time="time", unit_id="unit", lag=(1, 2, 3),
-                  n_boot=50, random_seed=42)
+df = data("malesky2014")
 
-# Inspect placebo estimates and equivalence CIs
+check = did_check(
+    data=df, outcome="pro4", treatment="treatment",
+    time="year", post="post_treat", data_type="rcs",
+    id_cluster="id_district", lag=[1], n_boot=50, random_seed=1234,
+)
 print(check.to_summary_frame())
 ```
 
-**Output interpretation:**
+Output:
 
-| Component | What to Look For |
-|-----------|------------------|
-| Placebo estimates | Values close to zero support extended parallel trends |
-| Std. Error | Smaller standard errors make placebo deviations easier to interpret |
-| Equivalence CI | Narrower intervals = stronger evidence that pre-trends are substantively small |
-
-**Decision guide:**
-
-| Scenario | Recommendation |
-|----------|----------------|
-| Placebo ≈ 0, narrow equivalence CI | Supports extended parallel trends; use Double DID |
-| Placebo ≈ 0, wide equivalence CI | Evidence weak; interpret cautiously |
-| Placebo non-zero, trends same direction | May motivate parallel-trends-in-trends; consider sDID |
-| Trends opposite directions | Neither assumption likely credible |
-
-### Step 2: Estimate Treatment Effects with `did()`
-
-```python
-from diddesign import did, summary
-
-result = did(data=df, outcome="y", treatment="treat",
-             time="time", unit_id="unit", n_boot=200, random_seed=42)
-
-print(summary(result, as_frame=True))
+```text
+   lag  estimate_raw  std_error_raw  eqci95_lb_std  eqci95_ub_std
+0    1      -0.00337       0.041026      -0.163403       0.163403
 ```
 
-The output reports three estimators:
+The placebo estimates test whether the DID and sDID estimators yield
+approximately zero effects in pre-treatment periods where no effect should
+exist. The equivalence confidence interval (reported in units of baseline
+control-group standard deviations) provides positive evidence for approximate
+parallel trends when it excludes substantively large deviations. No universal
+cutoff exists; researchers must apply domain knowledge.
 
-| Estimator | When to Use |
-|-----------|-------------|
-| Double-DID | Diagnostics support extended parallel trends |
-| DID | Baseline comparison |
-| sDID | Diagnostics suggest linear divergence |
-
-**Interpreting GMM weights**: `w_DID ≈ 1` favors standard DID; `w_sDID ≈ 1` favors sequential DID.
-
-## Quick Start
-
-### Basic DID (Panel Data)
+### Step 2: Estimate Treatment Effects
 
 ```python
-import numpy as np
-import pandas as pd
-from diddesign import did, summary
-
-# Simulate a balanced panel: 100 units, 3 time periods
-np.random.seed(42)
-n_units = 100
-times = [2019, 2020, 2021]
-units = np.repeat(range(n_units), len(times))
-time_col = np.tile(times, n_units)
-treated = units < n_units // 2
-post = time_col == 2021
-treatment_effect = 2.0
-
-y = np.random.normal(0, 1, n_units * len(times))
-y += treatment_effect * (treated & post)
-
-data = pd.DataFrame({
-    "unit": units,
-    "time": time_col,
-    "treat": (treated & post).astype(int),
-    "y": y,
-})
-
-# Fit Double DID
-result = did(data, formula="y ~ treat", time="time", unit_id="unit",
-             n_boot=50, random_seed=42)
-
-# Print formatted summary
-print(summary(result, as_frame=True))
-```
-
-### Basic DID (Repeated Cross-Section)
-
-```python
-import numpy as np
-import pandas as pd
 from diddesign import did
-
-np.random.seed(123)
-n_per_period = 200
-# Three time periods needed for Double DID: 2 pre-treatment + 1 post
-rows = []
-for t in [0, 1, 2]:
-    for i in range(n_per_period):
-        treat_group = 1 if i < n_per_period // 2 else 0
-        post_indicator = 1 if t == 2 else 0
-        y = 5.0 + 2.0 * treat_group + 0.5 * t + 3.0 * treat_group * post_indicator
-        y += np.random.normal(0, 1)
-        rows.append({"y": y, "treat": treat_group, "time": t, "post": post_indicator})
-
-data = pd.DataFrame(rows)
-
-result = did(data, outcome="y", treatment="treat", time="time",
-             post="post", data_type="rcs", n_boot=50, random_seed=123)
-
-# Access estimates as a DataFrame
-print(result.to_estimates_frame())
-```
-
-### Staggered Adoption Design
-
-```python
-import numpy as np
-import pandas as pd
-from diddesign import did, fit
-
-np.random.seed(99)
-states = list(range(20))
-years = list(range(2000, 2010))
-rows = []
-# Assign staggered treatment: first 10 states treated at year 2005
-for s in states:
-    treat_year = 2005 if s < 10 else None
-    for t in years:
-        treated = 1 if (treat_year and t >= treat_year) else 0
-        y = 10 + 0.5 * t + 2.0 * treated + np.random.normal(0, 1)
-        rows.append({"state": s, "year": t, "treat": treated, "y": y})
-
-data = pd.DataFrame(rows)
-
-result = did(data, outcome="y", treatment="treat", time="year",
-             unit_id="state", design="sa", lead=(0, 1, 2),
-             thres=1, n_boot=50, random_seed=99)
-
-# Lead-specific estimates
-print(result.to_estimates_frame())
-# Fit rows for event-study plot
-print(fit(result, as_frame=True))
-```
-
-### K-DID with Multiple Pre-treatment Periods
-
-```python
-import numpy as np
-import pandas as pd
-from diddesign import did
-
-np.random.seed(7)
-n_units = 80
-times = [2016, 2017, 2018, 2019, 2020]  # 4 pre-treatment periods
-units = np.repeat(range(n_units), len(times))
-time_col = np.tile(times, n_units)
-treated = units < n_units // 2
-post = time_col == 2020
-
-y = np.random.normal(0, 1, n_units * len(times))
-y += 1.5 * (treated & post)
-
-data = pd.DataFrame({
-    "unit": units, "time": time_col,
-    "treat": (treated & post).astype(int), "y": y,
-})
-
-# Request K-DID with kmax=3 and J-test moment selection
-result = did(data, formula="y ~ treat", time="time", unit_id="unit",
-             kmax=3, jtest=True, n_boot=100, random_seed=7)
-
-# K-DID combined estimate alongside component rows
-print(result.to_estimates_frame())
-# Bootstrap draws with component columns
-print(result.to_bootstrap_frame().head())
-```
-
-### K-DID with Staggered Adoption
-
-When multiple pre-treatment periods are available in a staggered-adoption
-design, use `kmax > 2` to employ higher-order differencing with GMM-optimal
-combination and over-identification testing:
-
-```python
-import numpy as np
-import pandas as pd
-from diddesign import did
-
-# Load staggered-adoption panel data
-data = pd.read_stata("paglayan2019.dta")
-data["log_expenditure"] = np.log(data["pupil_expenditure"] + 1.0)
 
 result = did(
-    data,
-    outcome="log_expenditure",
-    treatment="treatment",
-    time="year",
-    unit_id="state",
-    design="sa",
-    kmax=3,          # Use up to 3rd-order differencing
-    jtest=True,      # Enable J-test for over-identification
-    lead=(0, 1, 2),
-    thres=1,
-    n_boot=100,
-    random_seed=2024,
+    df, outcome="pro4", treatment="treatment",
+    time="year", post="post_treat", data_type="rcs",
+    id_cluster="id_district", n_boot=200, random_seed=1234,
 )
-
-# Component estimates (SA-DID, SA-sDID, SA-kDID-3)
-# and GMM-combined estimate (SA-K-DID) are in:
-estimates = result.to_estimates_frame()
-print(estimates)
-
-# K-dimensional GMM weights per lead:
-k_weights = result.to_k_weights_frame()
-print(k_weights)
+print(result.to_dataframe())
+print(result.to_latex(caption="Recentralization Effect on Pro4"))
 ```
 
-### Adding Covariates and Interactions
+Output:
+
+```text
+    estimator  lead  estimate  std_error     ci_lo     ci_hi    weight
+0  Double-DID     0  0.076596   0.046146 -0.013849  0.167041       NaN
+1         DID     0  0.079314   0.057338 -0.033066  0.191694  1.806658
+2        sDID     0  0.082684   0.089100 -0.091949  0.257317 -0.806658
+
+\begin{table}[htbp]
+\centering
+\caption{Recentralization Effect on Pro4}
+\begin{tabular}{llrrrr}
+\hline\hline
+Estimator & Lead & Estimate & Std. Error & CI Low & CI High \\
+\hline
+Double-DID & 0 & 0.0766$^{*}$ & 0.0461 & -0.0138 & 0.1670 \\
+DID & 0 & 0.0793 & 0.0573 & -0.0331 & 0.1917 \\
+sDID & 0 & 0.0827 & 0.0891 & -0.0919 & 0.2573 \\
+\hline\hline
+\multicolumn{6}{l}{\footnotesize Note: $^{*}$p$<$0.10, $^{**}$p$<$0.05, $^{***}$p$<$0.01} \\
+\end{tabular}
+\end{table}
+```
+
+The output reports three rows: Double-DID (the GMM-optimal combination), DID,
+and sDID. The GMM weights indicate which component the data favor—when
+`w_DID ≈ 1`, standard DID dominates; when `w_sDID ≈ 1`, the sequential
+component dominates.
+
+### Staggered Adoption
 
 ```python
 import numpy as np
-import pandas as pd
-from diddesign import did
+from diddesign.data import data
+from diddesign import did, did_check
 
-np.random.seed(55)
-n_units = 60
-times = [0, 1, 2]
-units = np.repeat(range(n_units), len(times))
-time_col = np.tile(times, n_units)
-treated = units < n_units // 2
-post = time_col == 2
+df = data("paglayan2019")
+df["log_expenditure"] = np.log(df["pupil_expenditure"] + 1.0)
 
-# Continuous covariates and categorical covariate
-x1 = np.random.normal(0, 1, n_units * len(times))
-x2 = np.random.normal(0, 1, n_units * len(times))
-region = np.random.choice(["A", "B", "C"], n_units * len(times))
-y = 3.0 + 0.5 * x1 + 2.0 * (treated & post) + np.random.normal(0, 1, n_units * len(times))
+# Diagnose pre-trends across multiple lags
+check = did_check(
+    data=df, outcome="log_expenditure", treatment="treatment",
+    time="year", unit_id="state", design="sa",
+    lag=[1, 2, 3], thres=1, n_boot=50, random_seed=1234,
+)
+print(check.to_summary_frame())
 
-data = pd.DataFrame({
-    "unit": units, "time": time_col,
-    "treat": (treated & post).astype(int),
-    "y": y, "x1": x1, "x2": x2, "region": region,
-})
+# SA-Double-DID estimation
+result = did(
+    df, outcome="log_expenditure", treatment="treatment",
+    time="year", unit_id="state", design="sa",
+    thres=1, n_boot=200, random_seed=1234,
+)
+print(result.to_dataframe())
+```
 
-# Covariates: x1*x2 expands to main effects + interaction; factor() for categorical
-result = did(data, outcome="y", treatment="treat", time="time",
-             unit_id="unit", covariates=["x1*x2", "factor(region)"],
-             n_boot=50, random_seed=55)
+Output:
 
-print(result.to_estimates_frame())
+```text
+   lag  estimate_raw  std_error_raw  eqci95_lb_std  eqci95_ub_std
+0    1     -0.002669       0.009736      -0.117499       0.117499
+1    2     -0.012447       0.007841      -0.151357       0.151357
+2    3      0.002269       0.011331      -0.121691       0.121691
+
+       estimator  lead  estimate  std_error     ci_lo     ci_hi    weight
+0  SA-Double-DID     0  0.011401   0.012157 -0.011430  0.033800       NaN
+1         SA-DID     0  0.010984   0.012247 -0.011420  0.034097  0.843723
+2        SA-sDID     0  0.013653   0.014537 -0.014634  0.042717  0.156277
+```
+
+### K-DID with J-test Moment Selection
+
+When three or more pre-treatment periods are available, K-DID exploits
+higher-order moment conditions. The J-test adaptively removes components
+whose identifying assumptions appear violated.
+
+```python
+result = did(
+    df, outcome="log_expenditure", treatment="treatment",
+    time="year", unit_id="state", design="sa",
+    kmax=3, jtest=True, thres=1,
+    n_boot=200, random_seed=1234,
+)
+print(result.to_dataframe())
+```
+
+Output:
+
+```text
+   estimator  lead  estimate  std_error     ci_lo     ci_hi weight
+0   SA-K-DID     0  0.011685   0.012156 -0.011180  0.034105   None
+1     SA-DID     0  0.010984   0.012247 -0.011420  0.034097   None
+2    SA-sDID     0  0.013653   0.014537 -0.014634  0.042717   None
+3  SA-kDID-3     0  0.003875   0.023613 -0.040192  0.052995   None
+```
+
+### Covariates and Interactions
+
+The package supports continuous covariates, `factor()` categorical encoding,
+and `x1:x2` interaction terms (or `x1*x2` for main effects plus interaction):
+
+```python
+result = did(
+    data, outcome="y", treatment="treat", time="time",
+    unit_id="unit", covariates=["x1*x2", "factor(region)"],
+    n_boot=50, random_seed=55,
+)
 ```
 
 ### Visualization
 
 ```python
-from diddesign import did, did_check, plot_estimates, plot_diagnostics
+from diddesign import plot_estimates, plot_diagnostics
 
-# Assuming `data` is prepared as in the panel example above
-result = did(data, formula="y ~ treat", time="time", unit_id="unit",
-             n_boot=50, random_seed=42)
-
-check_result = did_check(data=data, outcome="y", treatment="treat",
-                         time="time", unit_id="unit",
-                         lag=1, n_boot=50, random_seed=42)
-
-# Event-study style plot with placebo overlay
-plot_estimates(result, check_fit=check_result,
+plot_estimates(result, check_fit=check,
               title="Double DID Estimates", save="estimates.png", show=False)
 
-# Multi-panel diagnostic figure (trends + placebo)
-plot_diagnostics(check_result, result=result,
+plot_diagnostics(check, result=result,
                  title="Pre-treatment Diagnostics", save="diagnostics.png",
                  show=False)
 ```
 
+## Methodology
+
+The Double DID estimator combines DID (τ̂_DID) and sequential DID (τ̂_sDID)
+using efficient GMM weights:
+
+$$
+\hat{\tau}_{DDID} = w_{DID} \cdot \hat{\tau}_{DID} + w_{sDID} \cdot \hat{\tau}_{sDID}
+$$
+
+where the weights minimize asymptotic variance:
+
+$$
+w = \frac{\Sigma^{-1} \mathbf{1}}{\mathbf{1}' \Sigma^{-1} \mathbf{1}}
+$$
+
+and Σ is the bootstrap covariance matrix of (τ̂_DID, τ̂_sDID)'. Under the
+extended parallel trends assumption:
+
+$$
+\text{Var}(\hat{\tau}_{DDID}) \leq \min\{\text{Var}(\hat{\tau}_{DID}),\; \text{Var}(\hat{\tau}_{sDID})\}
+$$
+
+Standard errors and confidence intervals are obtained via a nonparametric
+bootstrap (cluster bootstrap when `id_cluster` is specified). The bootstrap
+covariance matrix Σ̂ determines the GMM-optimal weights, and percentile or
+normal-approximation intervals are reported depending on the design.
+
+For K-DID, the K-dimensional generalization combines all K component
+estimators via the K×K bootstrap covariance, with the J-test providing a
+model-selection step that excludes moments whose overidentification statistic
+rejects.
+
 ## API Reference
 
-### Public API Summary
+### Core Functions
 
-- `did()` fits a DID or staggered-adoption design and returns a `DidResult`.
-- `did_check()` computes pre-treatment diagnostics and returns a
-  `DidCheckResult`.
-- `summary()` and `format_summary()` report fitted estimates.
-- `fit(..., as_frame=True)` returns event-time rows for figures.
-- `check(..., as_frame=True)` returns diagnostic plotting rows.
+| Function                      | Purpose                                              |
+| ----------------------------- | ---------------------------------------------------- |
+| `did()`                     | Fit DID or staggered-adoption design →`DidResult` |
+| `did_check()`               | Pre-treatment diagnostics →`DidCheckResult`       |
+| `summary()`                 | Formatted summary of fitted result                   |
+| `fit(..., as_frame=True)`   | Event-time plotting rows                             |
+| `check(..., as_frame=True)` | Diagnostic plotting rows                             |
 
-`DidResult` provides table-ready accessors:
-
-```python
-result.to_estimates_frame()
-result.to_bootstrap_frame()
-result.to_weights_frame()
-result.to_gmm_frame()
-```
-
-For scripts that need a detached serialized record, `DidResult` and
-`DidCheckResult` provide `to_serialized_result()`. New reporting code should
-usually start from the frame accessors above because those preserve the table
-rows used in the manuscript.
-
-For direct result-object construction, `DidGmmRow` is the public row class for
-per-lead GMM matrix entries. `DidCheckResult.named_plot_rows()` returns named
-plotting records for diagnostic figures.
-
-### `did()`
-
-Fit a DID or staggered-adoption design and return a `DidResult`.
+### `did()` Parameters
 
 ```python
 did(data, *, formula=None, outcome=None, treatment=None, time,
@@ -438,39 +318,33 @@ did(data, *, formula=None, outcome=None, treatment=None, time,
     verbose=1, kmax=2, jtest=False)
 ```
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `data` | DataFrame | — | Input data (panel or repeated cross-section) |
-| `formula` | str \| None | `None` | R-style formula, e.g. `"y ~ treat"` or `"y ~ treat + post \| x1 + factor(x2)"` |
-| `outcome` | str \| None | `None` | Outcome column name (alternative to formula) |
-| `treatment` | str \| None | `None` | Treatment indicator column |
-| `time` | str | — | Time period column (required) |
-| `unit_id` | str \| None | `None` | Unit identifier column (required for panel) |
-| `post` | str \| None | `None` | Post-treatment indicator (required for RCS) |
-| `design` | str | `"did"` | `"did"` for standard or `"sa"` for staggered adoption |
-| `data_type` | str | `"panel"` | `"panel"` or `"rcs"` (repeated cross-section) |
-| `covariates` | list[str] \| None | `None` | Covariate terms: `"x1"`, `"factor(x2)"`, `"x1:x2"`, `"x1*x2"` |
-| `lead` | int \| list[int] | `0` | Lead(s) for staggered adoption |
-| `thres` | int \| None | `None` | Minimum observations threshold |
-| `n_boot` | int | `30` | Number of bootstrap replications |
-| `se_boot` | bool \| None | `None` | Use bootstrap percentile CI (`None` = asymptotic for DID, bootstrap for SA) |
-| `level` | int | `95` | Confidence level (50–99) |
-| `id_cluster` | str \| None | `None` | Cluster variable for clustered bootstrap |
-| `random_seed` | int \| None | `None` | Seed for reproducibility |
-| `parallel` | bool | `False` | Enable parallel bootstrap computation |
-| `n_cores` | int \| None | `None` | Number of cores (default: all available) |
-| `parallel_backend` | str | `"thread"` | `"thread"` or `"process"` backend for parallel bootstrap |
-| `worker_timeout` | float \| None | `None` | Per-worker timeout in seconds (process backend only) |
-| `progress_callback` | Callable[[int, int], None] \| None | `None` | Callback invoked as `cb(done, total)` during parallel bootstrap |
-| `verbose` | int | `1` | Verbosity: 0 = quiet, 1 = default warnings, 2 = progress |
-| `kmax` | int | `2` | Maximum DID order: 2 = Double DID, ≥ 3 = K-DID |
-| `jtest` | bool | `False` | Apply J-test overidentification moment selection for K-DID |
+| Parameter       | Type             | Default     | Description                                                          |
+| --------------- | ---------------- | ----------- | -------------------------------------------------------------------- |
+| `data`        | DataFrame        | —          | Input data (panel or repeated cross-section)                         |
+| `formula`     | str\| None       | `None`    | R-style formula, e.g.`"y ~ treat"`                                 |
+| `outcome`     | str\| None       | `None`    | Outcome column name (alternative to formula)                         |
+| `treatment`   | str\| None       | `None`    | Treatment indicator column                                           |
+| `time`        | str              | —          | Time period column (required)                                        |
+| `unit_id`     | str\| None       | `None`    | Unit identifier column (required for panel)                          |
+| `post`        | str\| None       | `None`    | Post-treatment indicator (required for RCS)                          |
+| `design`      | str              | `"did"`   | `"did"` for standard or `"sa"` for staggered adoption            |
+| `data_type`   | str              | `"panel"` | `"panel"` or `"rcs"` (repeated cross-section)                    |
+| `covariates`  | list[str]\| None | `None`    | Covariate terms:`"x1"`, `"factor(x2)"`, `"x1:x2"`, `"x1*x2"` |
+| `lead`        | int\| list[int]  | `0`       | Lead(s) for staggered adoption                                       |
+| `thres`       | int\| None       | `None`    | Minimum observations threshold                                       |
+| `n_boot`      | int              | `30`      | Number of bootstrap replications                                     |
+| `se_boot`     | bool\| None      | `None`    | Use bootstrap percentile CI                                          |
+| `level`       | int              | `95`      | Confidence level (50–99)                                            |
+| `id_cluster`  | str\| None       | `None`    | Cluster variable for clustered bootstrap                             |
+| `random_seed` | int\| None       | `None`    | Seed for reproducibility                                             |
+| `parallel`    | bool             | `False`   | Enable parallel bootstrap computation                                |
+| `n_cores`     | int\| None       | `None`    | Number of cores (default: all available)                             |
+| `kmax`        | int              | `2`       | Maximum DID order: 2 = Double DID, ≥ 3 = K-DID                      |
+| `jtest`       | bool             | `False`   | Apply J-test moment selection for K-DID                              |
 
 **Returns:** `DidResult`
 
-### `did_check()`
-
-Compute pre-treatment diagnostic tests. All parameters are keyword-only.
+### `did_check()` Parameters
 
 ```python
 did_check(*, data=None, formula=None, outcome=None, treatment=None,
@@ -480,130 +354,72 @@ did_check(*, data=None, formula=None, outcome=None, treatment=None,
           verbose=1)
 ```
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `data` | DataFrame | — | Input data |
-| `lag` | int \| list[int] | `1` | Pre-treatment lag(s) to test |
-| `verbose` | int | `1` | Verbosity: 0 = quiet, 1 = default warnings, 2 = progress |
-| Other parameters | — | — | Same as `did()` (without `lead`, `kmax`, `jtest`, `parallel`) |
+All parameters are keyword-only. Parameters shared with `did()` have
+identical semantics. The `lag` parameter specifies which pre-treatment
+lag(s) to test.
 
 **Returns:** `DidCheckResult`
 
-### `summary()` and `format_summary()`
+### Result Objects
+
+`DidResult` is an immutable object returned by `did()`. It provides frame
+accessors for downstream analysis:
 
 ```python
-summary(result, estimator=None, *, as_frame=False)  # → tuple | DataFrame
-format_summary(result, estimator=None, *, digits=4)  # → str
+result.to_dataframe()           # Estimates as DataFrame
+result.to_estimates_frame()     # Alias
+result.to_bootstrap_frame()     # Bootstrap draws (iterations × components)
+result.to_weights_frame()       # GMM weight rows by lead
+result.to_gmm_frame()          # Full GMM calculation rows
+result.to_k_weights_frame()    # K-dimensional GMM weights (K-DID)
+result.to_latex()              # LaTeX table string
+result.to_serialized_result()  # Serializable dict for export
 ```
 
-### `fit()` and `check()`
-
-Data-layer functions for plotting rows:
+`DidCheckResult` is an immutable object returned by `did_check()`:
 
 ```python
-fit(result, check_fit=None, *, as_frame=False)  # → tuple | DataFrame
-check(result, *, as_frame=False)                # → dict
+check.to_summary_frame()   # Placebo test summary
+check.to_placebo_frame()   # Placebo plotting rows
+check.to_trends_frame()    # Trend comparison rows
+check.to_pattern_frame()   # SA pattern rows
+check.named_plot_rows()    # Named plotting records
+```
+
+Each row in the GMM frame is a `DidGmmRow` containing the covariance entries,
+weights, and GMM variance for a single lead. The diagnostic result provides
+`DidCheckResult.named_plot_rows()` for downstream figure production.
+
+For scripts that need a detached serialized record, `DidResult` and
+`DidCheckResult` provide `to_serialized_result()`. New reporting code should
+usually start from the frame accessors above because those preserve the table
+rows used in the manuscript.
+
+### Data Loading
+
+```python
+from diddesign.data import data
+
+df = data("malesky2014")    # Vietnam RCS (Malesky et al. 2014)
+df = data("paglayan2019")   # US states panel (Paglayan 2019)
 ```
 
 ### Visualization Functions
 
 All plotting functions require `diddesign[plot]` (matplotlib).
 
-| Function | Input | Description |
-| --- | --- | --- |
-| `plot_estimates(result, *, check_fit, ...)` | `DidResult` | Event-study plot with optional placebo overlay |
-| `plot_trends(check_result, *, ci, ...)` | `DidCheckResult` | Pre-treatment trend comparison |
-| `plot_placebo(check_result, *, ...)` | `DidCheckResult` | Placebo estimate plot |
-| `plot_pattern(check_result, *, ...)` | `DidCheckResult` | Staggered-adoption pattern diagnostic |
-| `plot_diagnostics(check_result, *, result, panels, ...)` | `DidCheckResult` | Multi-panel diagnostic figure |
+| Function                                | Input              | Description                                    |
+| --------------------------------------- | ------------------ | ---------------------------------------------- |
+| `plot_estimates(result, ...)`         | `DidResult`      | Event-study plot with optional placebo overlay |
+| `plot_trends(check_result, ...)`      | `DidCheckResult` | Pre-treatment trend comparison                 |
+| `plot_placebo(check_result, ...)`     | `DidCheckResult` | Placebo estimate plot                          |
+| `plot_pattern(check_result, ...)`     | `DidCheckResult` | Staggered-adoption pattern diagnostic          |
+| `plot_diagnostics(check_result, ...)` | `DidCheckResult` | Multi-panel diagnostic figure                  |
 
-**Common parameters:**
+### Errors
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `title` | str \| None | `None` | Figure title |
-| `xlabel` | str \| None | `None` | X-axis label |
-| `ylabel` | str \| None | `None` | Y-axis label |
-| `figsize` | tuple | `(8, 5)` | Figure size in inches |
-| `style` | str | `"publication"` | `"publication"` or `"default"` |
-| `save` | str \| None | `None` | File path to save figure |
-| `dpi` | int | `150` | Resolution for saved figure |
-| `ax` | Axes \| None | `None` | Pre-existing matplotlib axes |
-| `show` | bool | `True` | Call `plt.show()` |
-
-### Result Objects
-
-#### `DidResult`
-
-Immutable result object returned by `did()`.
-
-| Method | Returns | Description |
-| --- | --- | --- |
-| `estimate_rows()` | tuple[DidEstimateRow, ...] | All component and combined estimate rows |
-| `to_estimates_frame()` | DataFrame | Estimates as pandas DataFrame |
-| `to_bootstrap_frame()` | DataFrame | Bootstrap draws (iterations × components) |
-| `to_weights_frame()` | DataFrame | GMM weight rows by lead |
-| `to_gmm_frame()` | DataFrame | Full GMM calculation rows (covariances, weight matrix) |
-| `to_k_weights_frame()` | DataFrame | K-dimensional GMM weight rows (K-DID / SA-K-DID) |
-| `to_serialized_result()` | dict | Serializable representation for export |
-| `.metadata` | dict | Design metadata (time order, column roles, etc.) |
-
-**Key metadata fields (`result.metadata`):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `design` | str | `"did"` or `"sa"` |
-| `data_type` | str | `"panel"` or `"rcs"` |
-| `n_boot` | int | Requested bootstrap iterations |
-| `n_boot_realized` | int | Successful bootstrap iterations |
-| `random_seed` | int \| None | Seed used for reproducibility |
-| `requested_leads` | tuple | Leads requested by user |
-| `identified_leads` | tuple | Leads with sufficient support |
-| `weights_by_lead` | dict | Per-lead GMM weights {lead: {w_did, w_sdid}} |
-| `covariates` | tuple | Covariate terms used |
-| `encoding_map` | dict | Auto-encoded string column mappings |
-| `kmax` | int | K-DID order used |
-| `jtest` | bool | Whether J-test was applied |
-
-#### `DidCheckResult`
-
-Diagnostic result object returned by `did_check()`.
-
-| Method | Returns | Description |
-| --- | --- | --- |
-| `to_summary_frame()` | DataFrame | Placebo test summary |
-| `to_placebo_frame()` | DataFrame | Placebo plotting rows |
-| `to_trends_frame()` | DataFrame | Trend comparison rows |
-| `to_pattern_frame()` | DataFrame | Staggered-adoption pattern rows |
-| `named_plot_rows()` | dict | Named diagnostic plotting records |
-
-#### Row Data Classes
-
-| Class | Fields | Used In |
-| --- | --- | --- |
-| `DidEstimateRow` | estimator, lead, estimate, std_error, ci_lo, ci_hi, weight | `to_estimates_frame()` |
-| `DidBootstrapDraw` | iteration, lead, did, sdid | `to_bootstrap_frame()` |
-| `DidBootstrapDrawK` | iteration, lead, component_1, component_2, ... | K-DID bootstrap |
-| `DidWeightRow` | lead, w_did, w_sdid, double_did_available | `to_weights_frame()` |
-| `DidGmmRow` | lead, vcov_*, W_*, gmm_variance | `to_gmm_frame()` |
-| `DidCheckDiagnosticRow` | lag, estimate, std_error, ... | Placebo diagnostics |
-| `DidCheckTrendRow` | time, treated_mean, control_mean, ... | Trend comparison |
-| `DidCheckPatternRow` | lead, lag, estimate, ... | SA pattern diagnostics |
-
-### Errors and Warnings
-
-`diddesign` provides a structured error code system aligned with the Stata
-implementation (E001–E020 / W001–W010):
-
-| Class | Base | Purpose |
-|-------|------|---------|
-| `DidValueError` | ValueError | Parameter or data validation failure |
-| `DidRuntimeError` | RuntimeError | Computation failure (singular matrix, bootstrap) |
-| `DidDataError` | ValueError | Legacy alias for data contract errors |
-| `DidWarning` | UserWarning | Structured diagnostic warnings |
-
-Each exception carries a machine-readable `code` (e.g., `ErrorCode.E012`) and
-a `context` dictionary with diagnostic quantities:
+`diddesign` provides structured exceptions with machine-readable error codes
+(E001–E020) and diagnostic context dictionaries:
 
 ```python
 from diddesign.errors import DidValueError, ErrorCode
@@ -615,104 +431,89 @@ except DidValueError as e:
     print(e.context)  # {'field_name': 'treatment', ...}
 ```
 
-Use `ErrorCode` and `WarningCode` enums for programmatic error handling in
-automated pipelines.
+Full parameter documentation is available in the
+[Sphinx API reference](https://diddesign.readthedocs.io/en/latest/api.html).
+To build docs locally: `cd Docs && sphinx-build -b html . _build/html`.
 
-## Methodology
+## Citation
 
-### GMM Combination (Double DID)
+If you use this package in your research, please cite both the software and the methodology paper:
 
-The Double DID estimator combines DID ($\hat{\tau}_{DID}$) and sequential DID
-($\hat{\tau}_{sDID}$) using efficient GMM weights:
+**APA Format:**
 
-$$\hat{\tau}_{DDID} = w_{DID} \cdot \hat{\tau}_{DID} + w_{sDID} \cdot \hat{\tau}_{sDID}$$
+> Xu, W. (2025). *diddesign: Python package for Double Difference-in-Differences estimation* (Version 0.1.0) [Computer software]. GitHub. https://github.com/gorgeousfish/diddesign
 
-where the weights minimize the asymptotic variance:
+> Egami, N., & Yamauchi, S. (2023). Using Multiple Pretreatment Periods to Improve Difference-in-Differences and Staggered Adoption Designs. *Political Analysis*, 31(2), 195-212. https://doi.org/10.1017/pan.2022.8
 
-$$w = \frac{\Sigma^{-1} \mathbf{1}}{\mathbf{1}' \Sigma^{-1} \mathbf{1}}$$
+**BibTeX:**
 
-and $\Sigma$ is the bootstrap covariance matrix of
-$(\hat{\tau}_{DID}, \hat{\tau}_{sDID})'$.
+```bibtex
+@software{diddesign2025python,
+  title={diddesign: Python package for Double Difference-in-Differences estimation},
+  author={Wenli Xu},
+  year={2025},
+  version={0.1.0},
+  url={https://github.com/gorgeousfish/diddesign}
+}
 
-### Bootstrap Inference
-
-Standard errors and confidence intervals are obtained via a nonparametric
-bootstrap (cluster bootstrap when `id_cluster` is specified):
-
-1. Resample units (or clusters) with replacement.
-2. Re-estimate DID and sDID on each bootstrap sample.
-3. Estimate the covariance matrix $\hat{\Sigma}$ from bootstrap draws.
-4. Compute GMM-optimal weights and the combined Double DID estimate.
-5. Confidence intervals use either the asymptotic normal approximation
-   (default for `design="did"`) or percentile bootstrap (`se_boot=True`
-   or `design="sa"`).
-
-### K-DID Extension
-
-For panels with $K \geq 3$ pre-treatment periods, higher-order transformed-
-outcome estimators provide additional moment conditions. The K-DID estimator
-combines all $K$ component estimators:
-
-$$\hat{\tau}_{K\text{-}DID} = \mathbf{w}' \hat{\boldsymbol{\tau}}_K$$
-
-where $\hat{\boldsymbol{\tau}}_K = (\hat{\tau}_1, \ldots, \hat{\tau}_K)'$
-and weights are chosen by efficient GMM from the $K \times K$ bootstrap
-covariance matrix.
-
-### J-test Moment Selection
-
-When `jtest=True`, the overidentification test statistic is used to
-adaptively select which moment conditions (component estimators) to retain.
-Components that fail the J-test are excluded before the final GMM combination,
-providing robustness against misspecified higher-order identification conditions.
-
-### Staggered Adoption
-
-For designs with multiple treatment-timing groups, the staggered-adoption
-estimator (`design="sa"`) computes lead-specific SA-DID, SA-sDID, and
-SA-Double-DID estimates. Each lead $\ell$ uses units treated at time $g$ and
-compares their outcome at $g + \ell$ to never-treated units, applying the
-same GMM combination within each lead.
+@article{egami2023using,
+  title={Using Multiple Pretreatment Periods to Improve Difference-in-Differences and Staggered Adoption Designs},
+  author={Egami, Naoki and Yamauchi, Soichiro},
+  journal={Political Analysis},
+  volume={31},
+  number={2},
+  pages={195--212},
+  year={2023},
+  doi={10.1017/pan.2022.8}
+}
+```
 
 ## Authors
 
 **Python Implementation:**
 
-- **Xuanyu Cai**, City University of Macau  
-  Email: xuanyuCAI@outlook.com
+- **Xuanyu Cai**, City University of Macau
+  Email: [xuanyuCAI@outlook.com](mailto:xuanyuCAI@outlook.com)
+- **Wenli Xu**, City University of Macau
+  Email: [wlxu@cityu.edu.mo](mailto:wlxu@cityu.edu.mo)
 
 **Methodology:**
 
 - **Naoki Egami**, Columbia University
 - **Soichiro Yamauchi**, Harvard University
 
-## Citation
+## Related Software
 
-If you use `diddesign` in your research, please cite the original methodology
-paper:
+For adjacent DID tasks, other Python packages may be the better first choice:
 
-```bibtex
-@article{egami2023double,
-  title   = {Double Difference-in-Differences},
-  author  = {Egami, Naoki and Yamauchi, Soichiro},
-  journal = {Political Analysis},
-  year    = {2023},
-  doi     = {10.1017/pan.2023.8}
-}
-```
+| Package | Focus |
+| ------- | ----- |
+| [PyFixest](https://github.com/py-econometrics/pyfixest) | High-dimensional fixed effects, Sun-Abraham, TWFE diagnostics |
+| [differences](https://github.com/bernardodionisi/differences) | Callaway-Sant'Anna group-time ATT |
+| [DoubleML](https://github.com/DoubleML/doubleml-for-py) | Double/debiased machine learning for causal parameters |
+| [CausalPy](https://github.com/pymc-labs/CausalPy) | Bayesian causal inference (synthetic control, DID) |
+| [ModernDiD](https://github.com/d2cml-ai/ModernDiD) | Modern DID estimators (Callaway-Sant'Anna, de Chaisemartin-d'Haultfoeuille) |
+| [lwdid](https://github.com/kylebutts/lwdid) | Lightweight DID with unconditional parallel trends |
+| [sdid](https://github.com/synth-inference/sdid) | Synthetic DID combining DID and synthetic control |
+| [diff-diff](https://github.com/manmeet3591/diff-diff) | Simple two-period DID helper |
 
-## References
-
-- Egami, N. and Yamauchi, S. (2023). "Double Difference-in-Differences."
-  *Political Analysis*. DOI: 10.1017/pan.2023.8
-- R package: [DIDdesign](https://github.com/naoki-egami/DIDdesign) (CRAN)
-- Stata package: [diddesign](https://github.com/gorgeousfish/diddesign)
+`diddesign` is narrower: it implements the Egami-Yamauchi multiple-pre-treatment
+GMM framework and returns component estimates, diagnostics, GMM weights, and plotting rows
+as inspectable pandas objects.
 
 ## See Also
 
 - R package by Egami & Yamauchi: [DIDdesign](https://github.com/naoki-egami/DIDdesign)
 - Stata package: [diddesign](https://github.com/gorgeousfish/diddesign)
-- Paper: Egami & Yamauchi (2023). DOI: [10.1017/pan.2023.8](https://doi.org/10.1017/pan.2023.8)
+- Paper: [10.1017/pan.2022.8](https://doi.org/10.1017/pan.2022.8)
+
+## Replication
+
+To reproduce all paper tables, figures, and diagnostics:
+
+```bash
+bash paper/build.sh
+```
 
 ## License
 

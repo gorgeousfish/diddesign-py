@@ -876,9 +876,169 @@ def plot_diagnostics(
 
 
 __all__ = [
+    "plot_diagnostics_panel",
     "plot_estimates",
     "plot_trends",
     "plot_placebo",
     "plot_pattern",
     "plot_diagnostics",
 ]
+
+def plot_diagnostics_panel(
+    check_result: DidCheckResult,
+    *,
+    figsize: tuple[float, float] = (14, 4),
+    save: str | None = None,
+    show: bool = True,
+    dpi: int = 150,
+) -> Any:
+    """Auto-combine diagnostic plots into a multi-panel figure.
+
+    Creates a 1\u00d73 panel layout:
+      - Left: Parallel trends (treatment vs control means)
+      - Center: Placebo estimates with confidence intervals
+      - Right: Equivalence confidence intervals (standardized)
+
+    If the check result has no trend data (e.g. SA design), the left
+    panel displays the treatment timing pattern instead.
+
+    Parameters
+    ----------
+    check_result : DidCheckResult
+        Output from did_check().
+    figsize : tuple, optional
+        Figure size (width, height) in inches.
+    save : str, optional
+        If provided, save figure to this path.
+    show : bool, optional
+        Whether to display the figure.
+    dpi : int, optional
+        Resolution for saved figure.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    _, plt = _require_matplotlib()
+    from statistics import NormalDist
+
+    _set_publication_font()
+
+    is_sa = bool(check_result.pattern_table) and not check_result.trends_table
+
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
+
+    # -- Left panel: trends or pattern (SA) --
+    if is_sa:
+        try:
+            plot_pattern(
+                check_result,
+                style="publication",
+                ax=axes[0],
+                show=False,
+            )
+        except (ValueError, Exception):
+            axes[0].text(
+                0.5, 0.5, "No pattern data",
+                ha="center", va="center", transform=axes[0].transAxes, fontsize=10,
+            )
+            axes[0].set_axis_off()
+    else:
+        try:
+            plot_trends(
+                check_result,
+                style="publication",
+                ax=axes[0],
+                show=False,
+            )
+        except ValueError:
+            axes[0].text(
+                0.5, 0.5, "No trend data",
+                ha="center", va="center", transform=axes[0].transAxes, fontsize=10,
+            )
+            axes[0].set_axis_off()
+
+    # -- Center panel: placebo estimates with CI --
+    try:
+        plot_placebo(
+            check_result,
+            style="publication",
+            ax=axes[1],
+            show=False,
+        )
+    except ValueError:
+        axes[1].text(
+            0.5, 0.5, "No placebo data",
+            ha="center", va="center", transform=axes[1].transAxes, fontsize=10,
+        )
+        axes[1].set_axis_off()
+
+    # -- Right panel: equivalence CI (standardized) --
+    try:
+        check_data = _check_data(check_result, as_frame=True)
+        placebo_df = check_data["placebo"]
+
+        if placebo_df.empty:
+            raise ValueError("No placebo data for equivalence panel.")
+
+        ax_eq = axes[2]
+        z = NormalDist().inv_cdf(1 - (1 - 0.90) / 2)
+        placebo_df = placebo_df.copy()
+        placebo_df["ci_lb"] = placebo_df["estimate_std"] - z * placebo_df["std_error_std"]
+        placebo_df["ci_ub"] = placebo_df["estimate_std"] + z * placebo_df["std_error_std"]
+
+        # Plot individual CI bars
+        for _, row in placebo_df.iterrows():
+            ax_eq.plot(
+                [row["ci_lb"], row["ci_ub"]],
+                [row["time_to_treat"], row["time_to_treat"]],
+                color="#333333",
+                linewidth=1.5,
+                solid_capstyle="round",
+            )
+            ax_eq.plot(
+                row["estimate_std"],
+                row["time_to_treat"],
+                "o",
+                color="#000000",
+                markersize=5,
+            )
+
+        # Equivalence band
+        if "eqci95_lb_std" in placebo_df.columns and "eqci95_ub_std" in placebo_df.columns:
+            eq_lb = placebo_df["eqci95_lb_std"].min()
+            eq_ub = placebo_df["eqci95_ub_std"].max()
+            y_range = [placebo_df["time_to_treat"].min() - 0.5,
+                       placebo_df["time_to_treat"].max() + 0.5]
+            ax_eq.axvspan(eq_lb, eq_ub, alpha=0.12, color="#4477AA",
+                          label="Equivalence Band", zorder=0)
+
+        ax_eq.axvline(x=0, color="black", linestyle="--", linewidth=0.7, alpha=0.6)
+
+        from matplotlib.ticker import MaxNLocator
+        ax_eq.yaxis.set_major_locator(MaxNLocator(integer=True))
+
+        _apply_publication_style(
+            ax_eq,
+            title="Equivalence CI",
+            xlabel="Standardized Estimate",
+            ylabel="Time to Treatment",
+        )
+        ax_eq.legend(frameon=True, fontsize=9, edgecolor="#CCCCCC", fancybox=False)
+
+    except (ValueError, KeyError, Exception):
+        axes[2].text(
+            0.5, 0.5, "No equivalence data",
+            ha="center", va="center", transform=axes[2].transAxes, fontsize=10,
+        )
+        axes[2].set_axis_off()
+
+    fig.tight_layout()
+
+    if save:
+        fig.savefig(save, dpi=dpi, bbox_inches="tight")
+    if show:
+        plt.show()
+
+    return fig
+

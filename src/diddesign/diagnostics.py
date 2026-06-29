@@ -1640,7 +1640,28 @@ class DidCheckPatternRow:
 
 @dataclass(frozen=True)
 class DidCheckResult:
-    """Diagnostic result for summary tables and plotting rows."""
+    """Immutable result of pre-treatment parallel trends diagnostics.
+
+    Returned by :func:`did_check`, this object holds placebo DID/sDID
+    estimates, trend comparison rows, and (for staggered-adoption designs)
+    pattern rows. Each table is frozen at construction time.
+
+    The placebo estimates test whether applying the DID and sDID estimators
+    to pre-treatment period pairs yields values near zero—a necessary
+    condition for the identifying assumptions. The standardized equivalence
+    confidence intervals report pre-trend magnitudes in units of the baseline
+    control-group standard deviation, following Egami and Yamauchi (2023,
+    Section 3).
+
+    Frame accessors return detached pandas DataFrames suitable for reporting
+    or further analysis:
+
+    - ``to_summary_frame()`` — placebo estimates with equivalence CIs
+    - ``to_placebo_frame()`` — standardized placebo rows for plotting
+    - ``to_trends_frame()`` — group-level outcome means over time
+    - ``to_pattern_frame()`` — staggered-adoption cohort pattern rows
+    - ``named_plot_rows()`` — named record dict for visualization functions
+    """
 
     diagnostic_table: tuple[DidCheckDiagnosticRow, ...]
     trends_table: tuple[DidCheckTrendRow, ...]
@@ -1766,6 +1787,14 @@ class DidCheckResult:
             columns=_PATTERN_COLUMNS,
         )
 
+    def __repr__(self) -> str:
+        """Human-readable summary for REPL/Notebook display."""
+        design = self.metadata.get('design', '?')
+        n_diag = len(self.diagnostic_table)
+        n_trend = len(self.trends_table)
+        return (f"DidCheckResult(design='{design}', "
+                f"diagnostics={n_diag} rows, trends={n_trend} rows)")
+
 
 def did_check(
     *,
@@ -1792,6 +1821,81 @@ def did_check(
     option: Mapping[str, Any] | None = None,
     is_panel: bool | None = None,
 ) -> DidCheckResult:
+    """Assess the plausibility of parallel trends assumptions before estimation.
+
+    This function implements the pre-treatment diagnostic procedure described
+    in Egami and Yamauchi (2023, Section 3). The idea is straightforward: if
+    the identifying assumptions hold, then applying DID and sDID to pairs of
+    pre-treatment periods should yield estimates near zero. Substantial
+    deviations constitute evidence against the relevant assumption.
+
+    The function computes placebo DID and sDID estimates at each requested
+    lag, reports bootstrap standard errors, and constructs 95% standardized
+    equivalence confidence intervals. The equivalence CI reverses the usual
+    null: its rejection provides positive evidence that pre-treatment trends
+    are substantively close to parallel, rather than merely failing to reject
+    a difference.
+
+    For staggered-adoption designs (``design="sa"``), diagnostics are computed
+    within each treatment-timing cohort and reported per lag.
+
+    Parameters
+    ----------
+    data : DataFrame or iterable of mappings
+        Panel or repeated cross-section data.
+    formula : str or DidFormulaSpec, optional
+        Formula specification (e.g. ``"y ~ treat"``).
+    outcome : str, optional
+        Outcome column name.
+    treatment : str, optional
+        Treatment indicator column.
+    time : str, optional
+        Time period column.
+    unit_id : str, optional
+        Unit identifier column.
+    post : str, optional
+        Post-treatment indicator (for RCS data).
+    design : str, default 'did'
+        ``'did'`` for standard design, ``'sa'`` for staggered adoption.
+    covariates : sequence of str, optional
+        Covariate terms for adjustment.
+    data_type : str, default 'panel'
+        ``'panel'`` or ``'rcs'`` (repeated cross-section).
+    id_cluster : str, optional
+        Cluster variable for the bootstrap.
+    lag : int or sequence of int, default 1
+        Pre-treatment lag(s) at which to compute placebo estimates.
+        Lag k tests the assumption using time periods k+1 steps before
+        treatment.
+    thres : int, optional
+        Minimum observation threshold per cell (required for SA designs).
+    n_boot : int, default 30
+        Number of bootstrap replications for standard error estimation.
+    random_seed : int, optional
+        Seed for reproducibility of bootstrap draws.
+    verbose : int, default 1
+        0 = suppress warnings, 1 = default, 2 = progress display.
+
+    Returns
+    -------
+    DidCheckResult
+        Immutable diagnostic result containing placebo estimates,
+        trend comparison rows, and (for SA designs) pattern rows.
+        Access summaries via ``to_summary_frame()``, ``to_placebo_frame()``,
+        ``to_trends_frame()``, and ``named_plot_rows()``.
+
+    Examples
+    --------
+    >>> from diddesign import did_check
+    >>> from diddesign.data import data
+    >>> df = data("malesky2014")
+    >>> check = did_check(
+    ...     data=df, outcome="pro4", treatment="treatment",
+    ...     time="year", post="post_treat", data_type="rcs",
+    ...     id_cluster="id_district", lag=[1], n_boot=50, random_seed=1234,
+    ... )
+    >>> print(check.to_summary_frame())
+    """
     # Validate verbose parameter
     if not isinstance(verbose, int) or verbose < 0 or verbose > 2:
         verbose = 1  # fallback to default
@@ -1860,6 +1964,16 @@ def _did_check_inner(
     """Inner implementation of did_check() without verbose wrapper."""
     if metadata is not None and not isinstance(metadata, Mapping):
         raise TypeError("metadata must be a mapping.")
+    # Convert polars DataFrame/LazyFrame to pandas if needed
+    if data is not None:
+        try:
+            import polars as pl
+            if isinstance(data, (pl.DataFrame, pl.LazyFrame)):
+                if isinstance(data, pl.LazyFrame):
+                    data = data.collect()
+                data = data.to_pandas()
+        except ImportError:
+            pass
     data_type, lag, thres, n_boot, id_cluster = _normalize_runtime_surface(
         option=option,
         data_type=data_type,
