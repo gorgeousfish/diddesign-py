@@ -67,13 +67,13 @@ Trends      Trends
 ## Installation
 
 ```bash
-pip install git+https://github.com/gorgeousfish/diddesign-py.git
+pip install diddesign
 ```
 
 Visualization support (matplotlib):
 
 ```bash
-pip install "diddesign[plot] @ git+https://github.com/gorgeousfish/diddesign-py.git"
+pip install "diddesign[plot]"
 ```
 
 **Requirements:** Python ≥ 3.12, NumPy ≥ 1.26, pandas ≥ 2.2.
@@ -434,7 +434,7 @@ If you use this package in your research, please cite both the software and the 
 
 **APA Format:**
 
-> Cai, X. & Xu, W. (2026). *diddesign: Python package for Double Difference-in-Differences estimation* (Version 0.1.3) [Computer software]. GitHub. https://github.com/gorgeousfish/diddesign-py
+> Cai, X. & Xu, W. (2026). *diddesign: Python package for Double Difference-in-Differences estimation* (Version 0.1.4) [Computer software]. GitHub. https://github.com/gorgeousfish/diddesign-py
 
 > Egami, N., & Yamauchi, S. (2023). Using Multiple Pretreatment Periods to Improve Difference-in-Differences and Staggered Adoption Designs. *Political Analysis*, 31(2), 195-212. https://doi.org/10.1017/pan.2022.8
 
@@ -450,7 +450,7 @@ If you use this package in your research, please cite both the software and the 
   title={diddesign: Python package for Double Difference-in-Differences estimation},
   author={Cai, Xuanyu and Xu, Wenli},
   year={2026},
-  version={0.1.3},
+  version={0.1.4},
   url={https://github.com/gorgeousfish/diddesign-py}
 }
 
