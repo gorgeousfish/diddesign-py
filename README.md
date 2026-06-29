@@ -434,17 +434,17 @@ If you use this package in your research, please cite both the software and the 
 
 **APA Format:**
 
-> Xu, W. (2025). *diddesign: Python package for Double Difference-in-Differences estimation* (Version 0.1.0) [Computer software]. GitHub. https://github.com/gorgeousfish/diddesign
+> Xu, W. (2026). *diddesign: Python package for Double Difference-in-Differences estimation* (Version 0.1.0) [Computer software]. GitHub. https://github.com/gorgeousfish/diddesign
 
 > Egami, N., & Yamauchi, S. (2023). Using Multiple Pretreatment Periods to Improve Difference-in-Differences and Staggered Adoption Designs. *Political Analysis*, 31(2), 195-212. https://doi.org/10.1017/pan.2022.8
 
 **BibTeX:**
 
 ```bibtex
-@software{diddesign2025python,
+@software{diddesign2026python,
   title={diddesign: Python package for Double Difference-in-Differences estimation},
   author={Wenli Xu},
-  year={2025},
+  year={2026},
   version={0.1.0},
   url={https://github.com/gorgeousfish/diddesign}
 }
