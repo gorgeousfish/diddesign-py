@@ -434,19 +434,24 @@ If you use this package in your research, please cite both the software and the 
 
 **APA Format:**
 
-> Xu, W. (2026). *diddesign: Python package for Double Difference-in-Differences estimation* (Version 0.1.0) [Computer software]. GitHub. https://github.com/gorgeousfish/diddesign
+> Cai, X. & Xu, W. (2026). *diddesign: Python package for Double Difference-in-Differences estimation* (Version 0.1.3) [Computer software]. GitHub. https://github.com/gorgeousfish/diddesign-py
 
 > Egami, N., & Yamauchi, S. (2023). Using Multiple Pretreatment Periods to Improve Difference-in-Differences and Staggered Adoption Designs. *Political Analysis*, 31(2), 195-212. https://doi.org/10.1017/pan.2022.8
+
+**Authors:**
+
+- Xuanyu Cai, University of Macau, xuanyuCAI@outlook.com
+- Wenli Xu, City University of Macau, wlxu@cityu.edu.mo
 
 **BibTeX:**
 
 ```bibtex
 @software{diddesign2026python,
   title={diddesign: Python package for Double Difference-in-Differences estimation},
-  author={Wenli Xu},
+  author={Cai, Xuanyu and Xu, Wenli},
   year={2026},
-  version={0.1.0},
-  url={https://github.com/gorgeousfish/diddesign}
+  version={0.1.3},
+  url={https://github.com/gorgeousfish/diddesign-py}
 }
 
 @article{egami2023using,
@@ -465,7 +470,7 @@ If you use this package in your research, please cite both the software and the 
 
 **Python Implementation:**
 
-- **Xuanyu Cai**, City University of Macau
+- **Xuanyu Cai**, University of Macau
   Email: [xuanyuCAI@outlook.com](mailto:xuanyuCAI@outlook.com)
 - **Wenli Xu**, City University of Macau
   Email: [wlxu@cityu.edu.mo](mailto:wlxu@cityu.edu.mo)
