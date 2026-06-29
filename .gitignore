@@ -3,6 +3,7 @@ tests/
 
 # Example images
 *.png
+!image/image.png
 
 # Python cache
 __pycache__/
@@ -24,6 +25,10 @@ ENV/
 
 # Benchmarks
 .benchmarks/
+benchmarks/
+
+# Internal scripts
+repo_hardening/
 
 # IDE
 .idea/
