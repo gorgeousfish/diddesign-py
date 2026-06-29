@@ -482,38 +482,11 @@ If you use this package in your research, please cite both the software and the 
 - **Naoki Egami**, Columbia University
 - **Soichiro Yamauchi**, Harvard University
 
-## Related Software
-
-For adjacent DID tasks, other Python packages may be the better first choice:
-
-| Package | Focus |
-| ------- | ----- |
-| [PyFixest](https://github.com/py-econometrics/pyfixest) | High-dimensional fixed effects, Sun-Abraham, TWFE diagnostics |
-| [differences](https://github.com/bernardodionisi/differences) | Callaway-Sant'Anna group-time ATT |
-| [DoubleML](https://github.com/DoubleML/doubleml-for-py) | Double/debiased machine learning for causal parameters |
-| [CausalPy](https://github.com/pymc-labs/CausalPy) | Bayesian causal inference (synthetic control, DID) |
-| [ModernDiD](https://github.com/d2cml-ai/ModernDiD) | Modern DID estimators (Callaway-Sant'Anna, de Chaisemartin-d'Haultfoeuille) |
-| [lwdid](https://github.com/kylebutts/lwdid) | Lightweight DID with unconditional parallel trends |
-| [sdid](https://github.com/synth-inference/sdid) | Synthetic DID combining DID and synthetic control |
-| [diff-diff](https://github.com/manmeet3591/diff-diff) | Simple two-period DID helper |
-
-`diddesign` is narrower: it implements the Egami-Yamauchi multiple-pre-treatment
-GMM framework and returns component estimates, diagnostics, GMM weights, and plotting rows
-as inspectable pandas objects.
-
 ## See Also
 
 - R package by Egami & Yamauchi: [DIDdesign](https://github.com/naoki-egami/DIDdesign)
 - Stata package: [diddesign](https://github.com/gorgeousfish/diddesign)
 - Paper: [10.1017/pan.2022.8](https://doi.org/10.1017/pan.2022.8)
-
-## Replication
-
-To reproduce all paper tables, figures, and diagnostics:
-
-```bash
-bash paper/build.sh
-```
 
 ## License
 
